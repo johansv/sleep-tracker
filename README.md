@@ -22,15 +22,16 @@ React + TypeScript + Vite + pnpm, deployed as a React SPA and same-origin API on
 
 main is the release branch and dev is the integration branch. Non-trivial implementation is normally described by a GitHub Issue, implemented on a branch from dev and reviewed through a PR back to dev. Releases are explicit dev-to-main integrations.
 
-The project is optimized for agentic development: local execution must require no interactive login, deterministic seed/reset data must be available, and agents must be able to run and inspect the UI in a real browser.
+The project is optimized for agentic development: local execution must require no interactive login or Cloudflare account, deterministic seed/reset data must be available, and agents must be able to run and inspect the UI in a real browser. Automated tests and E2E runs own disposable isolated D1 state and must never depend on or mutate a developer's persisted local data.
 
 ## Expected command surface after implementation
 
 - pnpm install
 - pnpm db:reset
 - pnpm dev
+- pnpm build
+- pnpm preview
 - pnpm check
 - pnpm test:e2e
-- pnpm build
 
 See ARCHITECTURE.md for the full expected development and validation surface.

@@ -26,6 +26,7 @@ Preserve these unless the task explicitly changes accepted product direction:
 - Mobile logging must feel like a polished consumer/native app; desktop uses extra space for richer analysis.
 - Color/form are coherent and functional, not decorative clutter.
 - Deterministic seed data and login-free local/E2E operation are required development capabilities.
+- Automated tests/E2E own disposable isolated D1 state; never read, reset or otherwise depend on a human developer's persisted local database, and never use remote D1 for validation.
 
 ## Intended code ownership
 
@@ -62,7 +63,7 @@ Do not merge, release or deploy unless that consequential action is explicitly d
 
 ## Validation
 
-Run repository-owned checks relevant to the change. The implemented repo must provide the command surface defined in ARCHITECTURE.md, including pnpm check, tests/build/E2E and DB seed/reset.
+Run repository-owned checks relevant to the change. The implemented repo must provide the command surface defined in ARCHITECTURE.md, including pnpm check, tests/build/E2E, production-like pnpm preview and DB seed/reset. Test/E2E commands must provision their own isolated state and must not assume a pre-running app or developer database.
 
 For UI/interaction changes inspect the running app in a real browser. When layout is affected, validate the primary mobile target, another mobile size and desktop. Green CI alone does not prove responsive interaction quality.
 
