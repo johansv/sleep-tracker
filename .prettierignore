@@ -1,0 +1,11 @@
+node_modules
+dist
+.test-runs
+.local
+.wrangler
+.pnpm-store
+pnpm-lock.yaml
+worker-configuration.d.ts
+PRODUCT.md
+ARCHITECTURE.md
+AGENTS.md
