@@ -1,7 +1,7 @@
 # Sleep Tracker — Architecture
 
 Status: Canonical V1 architecture baseline.
-Product semantics and UX requirements live in PRODUCT.md.
+Product semantics and UX requirements live in docs/PRODUCT.md.
 
 ## Goals
 
@@ -56,20 +56,24 @@ Persist a lightweight household boundary even though V1 has no login UI.
 Minimum conceptual schema:
 
 Households:
+
 - id
 - name
 - created_at
 - updated_at
 
 Profiles:
+
 - id
 - household_id → households.id
 - name
+- color (identity color key, presentation only)
 - is_active
 - created_at
 - updated_at
 
 Sleep sessions:
+
 - id
 - profile_id → profiles.id
 - night_date: YYYY-MM-DD local date on which the night ends
@@ -165,13 +169,19 @@ A fresh checkout should converge on this small command surface:
 - pnpm db:migrate — apply migrations to the developer-local D1 store
 - pnpm db:seed — load canonical deterministic demo data into the developer-local D1 store
 - pnpm db:reset — destructively recreate only the developer-local D1 store, apply migrations and seed it
-- pnpm test — deterministic unit/integration tests using test-owned state only
-- pnpm test:e2e — self-contained browser suite that provisions its own isolated D1 state and app process
-- pnpm lint
-- pnpm typecheck
 - pnpm build
 - pnpm preview — build and run the built app locally in the Workers runtime
-- pnpm check — non-interactive aggregate quality gate covering lint, typecheck, tests, build and the repository's required E2E/smoke validation
+
+Verification is progressive. Mutating cleanup comes before read-only validation, cheap checks fail first, and every test command stays targetable (file, spec, project or grep) so the narrowest relevant check can run during implementation:
+
+- pnpm fix — mutating cleanup: format, apply safe lint fixes, format again
+- pnpm check — read-only fast gate: format check → lint → typecheck → fast deterministic tests → production build
+- pnpm test — fast deterministic unit/component tests; never needs a Worker/D1 runtime or browser
+- pnpm test:integration — Worker/API boundary tests against fresh test-owned D1
+- pnpm test:e2e — self-contained browser suite that provisions its own isolated D1 state and app process
+- pnpm verify — full review-candidate verification: fast gate, integration and critical browser journeys
+
+Run `verify` at coherent review/integration boundaries, not after every implementation step. CI never mutates files.
 
 Common local development must not require manual Cloudflare dashboard work, a Cloudflare account, remote resources or interactive login. Seed data must never be automatically inserted into production.
 
@@ -198,19 +208,17 @@ Use Vitest (or the current Vite-aligned equivalent) for fast domain tests. Cover
 
 Use React Testing Library or equivalent for meaningful component behavior; avoid markup-freezing snapshot-heavy suites.
 
-Use Playwright for critical end-to-end flows: profile administration, bedtime/wake logging, incomplete completion, historical add/edit/delete, statistics coverage/exclusion, representative profile comparison and app-shell/PWA navigation.
+Put Worker/D1 persistence tests behind `test:integration`. Reserve Playwright for behavior where the browser/end-to-end boundary adds confidence: profile administration, bedtime/wake logging (including a transient logging target), incomplete completion, historical add/edit/delete, statistics coverage/exclusion, representative profile comparison and app-shell/PWA navigation. Prefer the cheapest layer that gives equivalent confidence; keep tests that protect non-trivial behavior, domain invariants, integration boundaries, critical journeys or demonstrated regressions.
 
-For meaningful layout/interaction changes validate a real browser at:
+Browser journeys run at the primary iPhone 15 Pro Max-equivalent viewport. Only layout-sensitive journeys (tagged `@responsive`) also run at a smaller mobile viewport and normal desktop; functional flows are not multiplied across viewports.
 
-- iPhone 15 Pro Max-equivalent viewport;
-- a smaller mobile viewport;
-- normal desktop.
+During iteration validate UI changes in a real browser at the viewports the change affects. Broader canonical coverage (iPhone 15 Pro Max-equivalent, a smaller mobile viewport and normal desktop) is for changes with responsive blast radius and for final review acceptance. There is no mandatory screenshot matrix; produce targeted visual evidence when a UI change benefits from visual review.
 
 Green unit/CI output is not proof of responsive interaction quality. Browser evidence should cover relevant loading, empty, incomplete and error states when those states are affected.
 
 ## CI
 
-Implementation adds GitHub Actions CI for PRs to dev/main and relevant pushes. Reuse repository commands rather than inventing CI-only rules. At minimum run frozen pnpm install, lint, typecheck, deterministic tests and production build; include Playwright smoke/E2E where practical within normal CI budget.
+GitHub Actions CI runs for PRs to dev/main and relevant pushes, reusing repository commands rather than CI-only rules. Every push gets the fast gate (`pnpm check`) without browser infrastructure. Integration and browser E2E run as a dependent job only after it passes, and only for review candidates (non-draft PRs, including when a draft is marked ready for review) and pushes to dev/main; draft PR pushes stop at the fast gate.
 
 CI must be able to validate V1 without Cloudflare secrets or remote resources and must use isolated disposable local D1 state for persistence-dependent tests. Deployment is separate from ordinary CI unless explicitly configured later.
 
@@ -233,12 +241,12 @@ Feature/fix work must not target main directly except explicitly authorized exce
 
 ## Security posture
 
-V1 has no application auth, but still requires parameterized D1 statements, runtime validation, safe browser errors, no committed secrets and appropriate environment-specific Cloudflare configuration.
+V1 has no application auth, but still requires parameterized D1 statements, runtime validation, safe browser errors, no committed secrets and appropriate environment-specific Cloudflare configuration. The API also bounds JSON request bodies (safe `413`), rejects browser mutations whose `Origin` differs from the app's own origin (requests without `Origin` are allowed) and sends `X-Content-Type-Options: nosniff` on JSON responses.
 
 A public deployment containing real personal data requires an appropriate access-control boundary even before future application-level auth exists. Agent convenience must never become a production auth bypass.
 
 ## Documentation authority
 
-PRODUCT.md owns accepted product meaning and UX requirements. ARCHITECTURE.md owns implementation-shaping architecture/testing/delivery constraints. AGENTS.md is a concise navigator and must not grow into a duplicate specification. Task/review state belongs in GitHub Issues/PRs.
+docs/PRODUCT.md owns accepted product meaning and UX requirements. docs/ARCHITECTURE.md owns implementation-shaping architecture/testing/delivery constraints. AGENTS.md is a concise navigator and must not grow into a duplicate specification. Task/review state belongs in GitHub Issues/PRs.
 
 If implementation exposes a genuinely better or conflicting direction, do not silently drift: persist accepted conclusions in the natural canonical owner.

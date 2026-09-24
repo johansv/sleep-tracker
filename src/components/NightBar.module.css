@@ -1,0 +1,42 @@
+.track {
+  position: relative;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-2);
+}
+
+.midnight {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 1px;
+  background: var(--color-border-strong);
+}
+
+.bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 6px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--color-bedtime), var(--color-wake));
+}
+
+.dot {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  border-radius: var(--radius-pill);
+  transform: translateY(-50%);
+  border: 2px solid var(--color-bg);
+}
+
+.bed {
+  background: var(--color-bedtime);
+}
+
+.wake {
+  background: var(--color-wake);
+}

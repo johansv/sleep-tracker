@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+    # ready_for_review runs full verification when a draft becomes a review candidate.
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [dev, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Local, disposable state only: no Cloudflare account, secrets or remote resources. CI never
+# mutates files: formatting and lint are checked, not fixed.
+#
+# Progressive verification: every push gets the fast gate. Integration + browser E2E run only for
+# review candidates (non-draft PRs) and for pushes to dev/main; draft PR pushes stop at the gate.
+jobs:
+  check:
+    name: Fast gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Format check → lint → typecheck → unit/component tests → production build.
+      - run: pnpm check
+
+  integration-e2e:
+    name: Integration & browser E2E
+    needs: check
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:integration
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

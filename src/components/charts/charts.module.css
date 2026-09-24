@@ -1,0 +1,72 @@
+.chart {
+  width: 100%;
+  min-width: 0;
+}
+
+.chart :global(.recharts-surface) {
+  overflow: visible;
+}
+
+.chart :global(.recharts-wrapper:focus),
+.chart :global(.recharts-surface:focus) {
+  outline: none;
+}
+
+.tooltip {
+  min-width: 150px;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border-strong);
+  box-shadow: var(--shadow-2);
+  font-size: var(--text-sm);
+}
+
+.tooltipTitle {
+  margin-bottom: var(--space-1);
+  font-weight: var(--weight-semibold);
+}
+
+.tooltipRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+}
+
+.tooltipLabel {
+  flex: 1;
+}
+
+.tooltipValue {
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.legendLine {
+  width: 14px;
+  height: 0;
+  border-top: 2px dashed var(--chart-reference);
+}

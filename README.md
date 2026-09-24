@@ -4,34 +4,81 @@ Sleep Tracker is a responsive consumer application for manually recording bedtim
 
 The product intentionally records local wall-clock values rather than wearable-derived sleep stages or actual asleep time. Daily logging is mobile-first; larger screens provide richer history and analytics.
 
-## Repository status
-
-This repository currently contains the canonical V1 product and architecture baseline. Application implementation is the next development task.
-
 Canonical orientation:
 
-- PRODUCT.md — product purpose, domain/time semantics, V1 capabilities, statistics and UX/design requirements.
-- ARCHITECTURE.md — technical architecture, data model, testing, agent operability, CI and Git workflow.
+- [docs/PRODUCT.md](docs/PRODUCT.md) — product purpose, domain/time semantics, V1 capabilities, statistics and UX/design requirements.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — technical architecture, data model, testing, agent operability, CI and Git workflow.
 - AGENTS.md — concise navigation/execution guidance for coding agents.
 
-## Intended stack
+## Stack
 
-React + TypeScript + Vite + pnpm, deployed as a React SPA and same-origin API on Cloudflare Workers with D1 persistence. The app is an installable online-only PWA.
+React + TypeScript SPA built with Vite, served together with a same-origin `/api` Worker on Cloudflare Workers (via `@cloudflare/vite-plugin`) and persisted in Cloudflare D1. Wall-clock time uses Temporal (`temporal-polyfill`), charts use Recharts, API input is validated with Zod. The app is an installable, online-only PWA.
+
+Everything runs locally without a Cloudflare account, credentials, remote resources or an application login.
+
+## Getting started
+
+Requirements: Node 22 (see `.nvmrc`) and pnpm 10.33.0 (pinned via `packageManager`; `corepack enable` picks it up).
+
+```sh
+pnpm install
+pnpm db:reset   # create the local developer database, apply migrations, load demo data
+pnpm dev        # SPA + Worker API + local D1 at http://localhost:5173
+```
+
+## Commands
+
+| Command                 | What it does                                                                                   |
+| ----------------------- | ---------------------------------------------------------------------------------------------- |
+| `pnpm dev`              | Full local app (Vite + Workers runtime) against the developer D1 store in `.wrangler/state`.   |
+| `pnpm db:migrate`       | Apply `migrations/` to the developer store.                                                    |
+| `pnpm db:seed`          | (Re)load the demo profiles and their nights. Other profiles you entered are left untouched.    |
+| `pnpm db:reset`         | Destroy **only** the local developer D1 store, re-apply migrations and seed it.                |
+| `pnpm build`            | Production build (`dist/client` assets + `dist/sleep_tracker` Worker).                         |
+| `pnpm preview`          | Build, then run the built app locally in the Workers runtime (developer store).                |
+| `pnpm fix`              | Mutating cleanup: Prettier, safe ESLint fixes, Prettier again.                                 |
+| `pnpm check`            | Read-only fast gate: format check → lint → typecheck → `pnpm test` → build. No browser needed. |
+| `pnpm test`             | Fast deterministic unit and component tests (domain, demo data, client logic, components).     |
+| `pnpm test:integration` | Worker API against a fresh in-memory D1 per test (Miniflare).                                  |
+| `pnpm test:e2e`         | Self-contained Playwright journeys with their own isolated D1 state and server (see below).    |
+| `pnpm verify`           | Full review-candidate verification: `check` + `test:integration` + `test:e2e`.                 |
+
+Validate progressively: while implementing, run the narrowest relevant command with a file, spec or project filter (`pnpm test src/domain/stats.test.ts`, `pnpm test:e2e tests/e2e/logging.spec.ts --project=desktop`), use `pnpm check` as the fast gate, and run `pnpm verify` once for a review candidate. CI runs the fast gate on every push; integration and browser E2E follow only for non-draft PRs and pushes to `dev`/`main`, so keep a PR in draft while iterating.
+
+### Demo data
+
+The demo dataset is deterministic for a given anchor date ("today" of the dataset). By default it is anchored at your current local date so current periods look alive; set `SEED_ANCHOR=YYYY-MM-DD` to pin it. It contains:
+
+- **Alex** — ~14 months of fairly consistent nights, later on weekends, rare gaps.
+- **Sam** — later, irregular bedtimes on both sides of midnight, a calm stretch then a chaotic one, missing days, bedtime-only and wake-only nights.
+- **Mia** — a new profile with sparse recent data.
+- **Olle** — an inactive profile whose history remains viewable.
+
+The ISO week before the anchor's week is a hand-authored fixture week with known aggregates (`scripts/demo-data.ts`), used by unit and E2E tests.
+
+### Test isolation
+
+Automated tests never touch the developer database or remote D1:
+
+- `pnpm test:integration` creates a fresh in-memory D1 database per test with Miniflare.
+- Every E2E journey runs at the primary iPhone 15 Pro Max viewport; journeys tagged `@responsive` also run at a small phone and desktop.
+- `pnpm test:e2e` creates a disposable state directory under `.e2e-state/<run>/`, applies migrations, seeds the demo data at a fixed anchor (2026-09-24), builds the app into that directory and serves the production build with `wrangler dev` on free ports against that state. The directory is removed afterwards (`E2E_KEEP_STATE=1` keeps it). Runs need no pre-started server, and parallel runs don't share mutable state. Tests fix the browser clock and time zone, so results do not depend on the real date.
+- Extra arguments are passed to Playwright, e.g. `pnpm test:e2e --project desktop`.
+- Playwright uses its own Chromium (`pnpm exec playwright install chromium`); set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to use a preinstalled one.
+
+## Repository map
+
+- `src/domain` — pure civil-time, period, coverage, circular and statistics rules
+- `src/worker` — Worker entry, routes, input schemas, D1 persistence; `context.ts` is where future auth plugs in
+- `src/api` — typed browser API client and minimal online-only data loading
+- `src/app` — app shell, routing and the Today / History / Insights / People screens
+- `src/components` — product components (session editor, time field, charts, calendar…)
+- `src/design` — semantic tokens (`tokens.css`) and visual primitives (button, surface, sheet, toast…)
+- `src/shared` — browser/Worker API types
+- `migrations` — D1 schema history
+- `scripts` — demo data, DB and E2E runners, icon generation
+- `tests/e2e` — Playwright flows
 
 ## Delivery model
 
-main is the release branch and dev is the integration branch. Non-trivial implementation is normally described by a GitHub Issue, implemented on a branch from dev and reviewed through a PR back to dev. Releases are explicit dev-to-main integrations.
-
-The project is optimized for agentic development: local execution must require no interactive login or Cloudflare account, deterministic seed/reset data must be available, and agents must be able to run and inspect the UI in a real browser. Automated tests and E2E runs own disposable isolated D1 state and must never depend on or mutate a developer's persisted local data.
-
-## Expected command surface after implementation
-
-- pnpm install
-- pnpm db:reset
-- pnpm dev
-- pnpm build
-- pnpm preview
-- pnpm check
-- pnpm test:e2e
-
-See ARCHITECTURE.md for the full expected development and validation surface.
+main is the release branch and dev is the integration branch. Non-trivial implementation is normally described by a GitHub Issue, implemented on a branch from dev and reviewed through a PR back to dev. Releases are explicit dev-to-main integrations. CI (`.github/workflows/ci.yml`) runs the fast gate on every push and integration + E2E for review-ready PRs and pushes to dev/main, without any Cloudflare secrets. Remote Cloudflare provisioning and deployment are not set up yet: `wrangler.jsonc` carries a placeholder D1 id for local use only.

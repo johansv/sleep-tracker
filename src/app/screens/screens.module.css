@@ -1,0 +1,49 @@
+.pageHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  min-height: 44px;
+}
+
+.pageHeading {
+  min-width: 0;
+}
+
+.pageTitle {
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.02em;
+}
+
+.pageSubtitle {
+  margin-top: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.pageActions {
+  display: flex;
+  gap: var(--space-2);
+  flex: none;
+}
+
+.chips {
+  margin-bottom: var(--space-4);
+}
+
+.chipsSkeleton {
+  display: flex;
+  gap: var(--space-2);
+}
+
+@media (min-width: 900px) {
+  .pageHeader {
+    margin-bottom: var(--space-5);
+  }
+
+  .chips {
+    margin-bottom: var(--space-6);
+  }
+}

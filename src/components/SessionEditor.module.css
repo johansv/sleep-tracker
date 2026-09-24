@@ -1,0 +1,147 @@
+.form {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.dateRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.label {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.dateInput {
+  min-height: var(--touch-target);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  font-variant-numeric: tabular-nums;
+  color-scheme: dark;
+}
+
+.endpoint {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  min-width: 0;
+}
+
+.endpointHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.endpointIcon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+}
+
+.endpointIcon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.bed {
+  background: rgb(165 163 255 / 0.16);
+  color: var(--color-bedtime);
+}
+
+.wake {
+  background: rgb(245 207 138 / 0.14);
+  color: var(--color-wake);
+}
+
+.endpointTitle {
+  flex: 1;
+  font-weight: var(--weight-semibold);
+}
+
+.endpointDate {
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-regular);
+}
+
+.endpointBody {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.endpointEmpty {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.summary {
+  display: grid;
+  gap: var(--space-2);
+  min-height: 32px;
+}
+
+.duration {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  text-align: center;
+}
+
+.duration span {
+  color: var(--color-text);
+}
+
+.message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.message svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+}
+
+.error {
+  color: var(--color-danger);
+}
+
+.warning {
+  color: var(--color-warning);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+.spacer {
+  flex: 1;
+}
+
+@media (max-width: 380px) {
+  .delete {
+    padding: 0 var(--space-3);
+  }
+}

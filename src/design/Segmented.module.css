@@ -1,0 +1,42 @@
+.group {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-2);
+  min-width: 0;
+}
+
+.option {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.option:hover {
+  color: var(--color-text);
+}
+
+.option[aria-checked='true'] {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+  box-shadow: var(--shadow-1);
+}
+
+.sm .option {
+  min-height: 32px;
+  font-size: var(--text-xs);
+}
