@@ -1,0 +1,12 @@
+node_modules/
+.pnpm-store/
+dist/
+.wrangler/
+.local/
+.test-runs/
+test-results/
+playwright-report/
+coverage/
+.dev.vars*
+.env*
+*.log
