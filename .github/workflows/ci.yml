@@ -3,6 +3,8 @@ name: CI
 on:
   pull_request:
     branches: [dev, main]
+    # ready_for_review runs full verification when a draft becomes a review candidate.
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [dev, main]
 
@@ -15,6 +17,9 @@ permissions:
 
 # Local, disposable state only: no Cloudflare account, secrets or remote resources. CI never
 # mutates files: formatting and lint are checked, not fixed.
+#
+# Progressive verification: every push gets the fast gate. Integration + browser E2E run only for
+# review candidates (non-draft PRs) and for pushes to dev/main; draft PR pushes stop at the gate.
 jobs:
   check:
     name: Fast gate
@@ -34,6 +39,7 @@ jobs:
   integration-e2e:
     name: Integration & browser E2E
     needs: check
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:

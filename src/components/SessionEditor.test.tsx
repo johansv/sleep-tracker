@@ -135,4 +135,26 @@ describe('SessionEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(onSubmit).toHaveBeenCalledWith(initial);
   });
+
+  it('locks the whole form, including the host person picker, while a save is in flight', async () => {
+    const user = userEvent.setup();
+    let finish!: () => void;
+    const onSubmit = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+    render(
+      <SessionEditor
+        isNew
+        initial={{ nightDate: '2026-09-25', bedtime: null, wakeTime: null }}
+        maxNightDate="2026-09-26"
+        onSubmit={onSubmit}
+        onCancel={noop}
+        person={<button type="button">Sam</button>}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Save night' }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Sam' })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'Bedtime' })).toBeDisabled();
+    expect(screen.getByLabelText('Night ending')).toBeDisabled();
+    finish();
+  });
 });

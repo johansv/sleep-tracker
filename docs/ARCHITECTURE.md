@@ -218,7 +218,7 @@ Green unit/CI output is not proof of responsive interaction quality. Browser evi
 
 ## CI
 
-GitHub Actions CI runs for PRs to dev/main and relevant pushes, reusing repository commands rather than CI-only rules. The fast gate (`pnpm check`) runs first without browser infrastructure; integration and browser E2E run only after it passes, as a dependent job.
+GitHub Actions CI runs for PRs to dev/main and relevant pushes, reusing repository commands rather than CI-only rules. Every push gets the fast gate (`pnpm check`) without browser infrastructure. Integration and browser E2E run as a dependent job only after it passes, and only for review candidates (non-draft PRs, including when a draft is marked ready for review) and pushes to dev/main; draft PR pushes stop at the fast gate.
 
 CI must be able to validate V1 without Cloudflare secrets or remote resources and must use isolated disposable local D1 state for persistence-dependent tests. Deployment is separate from ordinary CI unless explicitly configured later.
 

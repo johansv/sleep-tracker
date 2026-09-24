@@ -43,7 +43,7 @@ pnpm dev        # SPA + Worker API + local D1 at http://localhost:5173
 | `pnpm test:e2e`         | Self-contained Playwright journeys with their own isolated D1 state and server (see below).    |
 | `pnpm verify`           | Full review-candidate verification: `check` + `test:integration` + `test:e2e`.                 |
 
-Validate progressively: while implementing, run the narrowest relevant command with a file, spec or project filter (`pnpm test src/domain/stats.test.ts`, `pnpm test:e2e tests/e2e/logging.spec.ts --project=desktop`), use `pnpm check` as the fast gate, and run `pnpm verify` once for a review candidate. CI runs the fast gate first and only then integration and browser E2E.
+Validate progressively: while implementing, run the narrowest relevant command with a file, spec or project filter (`pnpm test src/domain/stats.test.ts`, `pnpm test:e2e tests/e2e/logging.spec.ts --project=desktop`), use `pnpm check` as the fast gate, and run `pnpm verify` once for a review candidate. CI runs the fast gate on every push; integration and browser E2E follow only for non-draft PRs and pushes to `dev`/`main`, so keep a PR in draft while iterating.
 
 ### Demo data
 
@@ -81,4 +81,4 @@ Automated tests never touch the developer database or remote D1:
 
 ## Delivery model
 
-main is the release branch and dev is the integration branch. Non-trivial implementation is normally described by a GitHub Issue, implemented on a branch from dev and reviewed through a PR back to dev. Releases are explicit dev-to-main integrations. CI (`.github/workflows/ci.yml`) runs the fast gate and then integration + E2E on PRs and pushes to dev/main, without any Cloudflare secrets. Remote Cloudflare provisioning and deployment are not set up yet: `wrangler.jsonc` carries a placeholder D1 id for local use only.
+main is the release branch and dev is the integration branch. Non-trivial implementation is normally described by a GitHub Issue, implemented on a branch from dev and reviewed through a PR back to dev. Releases are explicit dev-to-main integrations. CI (`.github/workflows/ci.yml`) runs the fast gate on every push and integration + E2E for review-ready PRs and pushes to dev/main, without any Cloudflare secrets. Remote Cloudflare provisioning and deployment are not set up yet: `wrangler.jsonc` carries a placeholder D1 id for local use only.

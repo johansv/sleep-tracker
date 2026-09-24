@@ -95,132 +95,136 @@ export function SessionEditor({
   };
 
   return (
-    <form id={formId} className={styles.form} onSubmit={submit} noValidate>
-      {person}
-      <label className={styles.dateRow}>
-        <span className={styles.label}>Night ending</span>
-        <input
-          type="date"
-          className={styles.dateInput}
-          value={nightDate}
-          max={maxNightDate}
-          required
-          onChange={(event) => {
-            setNightDate(event.target.value);
-            if (isLocalDate(event.target.value)) onNightDateChange?.(event.target.value);
-          }}
-        />
-      </label>
-      {notice}
+    <form id={formId} onSubmit={submit} noValidate>
+      {/* While saving, everything is locked — including the host's person picker — so the sheet
+          can never show a different person or values than the ones being written. */}
+      <fieldset className={styles.form} disabled={submitting} aria-busy={submitting || undefined}>
+        {person}
+        <label className={styles.dateRow}>
+          <span className={styles.label}>Night ending</span>
+          <input
+            type="date"
+            className={styles.dateInput}
+            value={nightDate}
+            max={maxNightDate}
+            required
+            onChange={(event) => {
+              setNightDate(event.target.value);
+              if (isLocalDate(event.target.value)) onNightDateChange?.(event.target.value);
+            }}
+          />
+        </label>
+        {notice}
 
-      <fieldset className={styles.endpoint}>
-        <legend className="visually-hidden">Bedtime</legend>
-        <div className={styles.endpointHeader}>
-          <span className={[styles.endpointIcon, styles.bed].join(' ')} aria-hidden="true">
-            <Moon />
-          </span>
-          <span className={styles.endpointTitle}>Went to bed</span>
-          <Switch checked={hasBed} onChange={setHasBed} label="Bedtime recorded" />
-        </div>
-        {hasBed ? (
-          <div className={styles.endpointBody}>
-            <Segmented
-              size="sm"
-              label="Bedtime date"
-              options={bedDayOptions}
-              value={bedDayValue}
-              onChange={(v) => {
-                if (v === EARLIER) {
-                  setShowEarlier(true);
-                  if (bedOffset > -2) setBedOffset(-2);
-                } else {
-                  setShowEarlier(false);
-                  setBedOffset(Number(v));
-                }
-              }}
-            />
-            {showEarlier && validDate && (
-              <label className={styles.dateRow} htmlFor={earlierDateId}>
-                <span className={styles.label}>Bedtime date</span>
-                <input
-                  id={earlierDateId}
-                  type="date"
-                  className={styles.dateInput}
-                  value={addDays(nightDate, bedOffset)}
-                  max={nightDate}
-                  onChange={(event) => {
-                    if (isLocalDate(event.target.value)) setBedOffset(daysBetween(nightDate, event.target.value));
-                  }}
-                />
-              </label>
-            )}
-            <TimeField label="Bedtime" value={bedClock} onChange={setBedClock} />
+        <fieldset className={styles.endpoint}>
+          <legend className="visually-hidden">Bedtime</legend>
+          <div className={styles.endpointHeader}>
+            <span className={[styles.endpointIcon, styles.bed].join(' ')} aria-hidden="true">
+              <Moon />
+            </span>
+            <span className={styles.endpointTitle}>Went to bed</span>
+            <Switch checked={hasBed} onChange={setHasBed} label="Bedtime recorded" />
           </div>
-        ) : (
-          <p className={styles.endpointEmpty}>Not recorded — the night stays incomplete.</p>
-        )}
-      </fieldset>
+          {hasBed ? (
+            <div className={styles.endpointBody}>
+              <Segmented
+                size="sm"
+                label="Bedtime date"
+                options={bedDayOptions}
+                value={bedDayValue}
+                onChange={(v) => {
+                  if (v === EARLIER) {
+                    setShowEarlier(true);
+                    if (bedOffset > -2) setBedOffset(-2);
+                  } else {
+                    setShowEarlier(false);
+                    setBedOffset(Number(v));
+                  }
+                }}
+              />
+              {showEarlier && validDate && (
+                <label className={styles.dateRow} htmlFor={earlierDateId}>
+                  <span className={styles.label}>Bedtime date</span>
+                  <input
+                    id={earlierDateId}
+                    type="date"
+                    className={styles.dateInput}
+                    value={addDays(nightDate, bedOffset)}
+                    max={nightDate}
+                    onChange={(event) => {
+                      if (isLocalDate(event.target.value)) setBedOffset(daysBetween(nightDate, event.target.value));
+                    }}
+                  />
+                </label>
+              )}
+              <TimeField label="Bedtime" value={bedClock} onChange={setBedClock} />
+            </div>
+          ) : (
+            <p className={styles.endpointEmpty}>Not recorded — the night stays incomplete.</p>
+          )}
+        </fieldset>
 
-      <fieldset className={styles.endpoint}>
-        <legend className="visually-hidden">Wake-up</legend>
-        <div className={styles.endpointHeader}>
-          <span className={[styles.endpointIcon, styles.wake].join(' ')} aria-hidden="true">
-            <Sun />
-          </span>
-          <span className={styles.endpointTitle}>
-            Got up{validDate && <span className={styles.endpointDate}> · {formatShortDate(nightDate)}</span>}
-          </span>
-          <Switch checked={hasWake} onChange={setHasWake} label="Wake-up recorded" />
-        </div>
-        {hasWake ? (
-          <div className={styles.endpointBody}>
-            <TimeField label="Wake-up" value={wakeClock} onChange={setWakeClock} />
+        <fieldset className={styles.endpoint}>
+          <legend className="visually-hidden">Wake-up</legend>
+          <div className={styles.endpointHeader}>
+            <span className={[styles.endpointIcon, styles.wake].join(' ')} aria-hidden="true">
+              <Sun />
+            </span>
+            <span className={styles.endpointTitle}>
+              Got up{validDate && <span className={styles.endpointDate}> · {formatShortDate(nightDate)}</span>}
+            </span>
+            <Switch checked={hasWake} onChange={setHasWake} label="Wake-up recorded" />
           </div>
-        ) : (
-          <p className={styles.endpointEmpty}>Not recorded — the night stays incomplete.</p>
-        )}
-      </fieldset>
+          {hasWake ? (
+            <div className={styles.endpointBody}>
+              <TimeField label="Wake-up" value={wakeClock} onChange={setWakeClock} />
+            </div>
+          ) : (
+            <p className={styles.endpointEmpty}>Not recorded — the night stays incomplete.</p>
+          )}
+        </fieldset>
 
-      <div className={styles.summary} aria-live="polite">
-        {issues.length > 0 ? (
-          <p className={[styles.message, styles.error].join(' ')}>
-            <CircleAlert aria-hidden="true" /> {issues[0]!.message}
-          </p>
-        ) : minutes !== null ? (
-          <p className={styles.duration}>
-            <span className="num">{formatDuration(minutes)}</span> in bed
-          </p>
-        ) : (
-          <p className={[styles.message, styles.warning].join(' ')}>
-            <TriangleAlert aria-hidden="true" /> Incomplete nights are kept but not included in statistics.
-          </p>
-        )}
-        {warnings.map((w) => (
-          <p key={w} className={[styles.message, styles.warning].join(' ')}>
-            <TriangleAlert aria-hidden="true" /> {WARNING_TEXT[w]}
-          </p>
-        ))}
-        {serverError && (
-          <p className={[styles.message, styles.error].join(' ')} role="alert">
-            <CircleAlert aria-hidden="true" /> {serverError}
-          </p>
-        )}
-      </div>
+        <div className={styles.summary} aria-live="polite">
+          {issues.length > 0 ? (
+            <p className={[styles.message, styles.error].join(' ')}>
+              <CircleAlert aria-hidden="true" /> {issues[0]!.message}
+            </p>
+          ) : minutes !== null ? (
+            <p className={styles.duration}>
+              <span className="num">{formatDuration(minutes)}</span> in bed
+            </p>
+          ) : (
+            <p className={[styles.message, styles.warning].join(' ')}>
+              <TriangleAlert aria-hidden="true" /> Incomplete nights are kept but not included in statistics.
+            </p>
+          )}
+          {warnings.map((w) => (
+            <p key={w} className={[styles.message, styles.warning].join(' ')}>
+              <TriangleAlert aria-hidden="true" /> {WARNING_TEXT[w]}
+            </p>
+          ))}
+          {serverError && (
+            <p className={[styles.message, styles.error].join(' ')} role="alert">
+              <CircleAlert aria-hidden="true" /> {serverError}
+            </p>
+          )}
+        </div>
 
-      <div className={styles.actions}>
-        {!isNew && onDelete && (
-          <Button variant="danger" icon={<Trash2 />} onClick={onDelete} className={styles.delete}>
-            Delete
+        <div className={styles.actions}>
+          {!isNew && onDelete && (
+            <Button variant="danger" icon={<Trash2 />} onClick={onDelete} className={styles.delete}>
+              Delete
+            </Button>
+          )}
+          <span className={styles.spacer} />
+          <Button variant="secondary" onClick={onCancel}>
+            Cancel
           </Button>
-        )}
-        <span className={styles.spacer} />
-        <Button variant="secondary" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button variant="primary" type="submit" busy={submitting} disabled={issues.length > 0 || submitBlocked}>
-          {isNew ? 'Save night' : 'Save'}
-        </Button>
-      </div>
+          <Button variant="primary" type="submit" busy={submitting} disabled={issues.length > 0 || submitBlocked}>
+            {isNew ? 'Save night' : 'Save'}
+          </Button>
+        </div>
+      </fieldset>
     </form>
   );
 }

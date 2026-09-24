@@ -44,21 +44,24 @@ Examples:
 
 The user can create, rename/edit, activate/deactivate and select profiles, and can inspect history for inactive profiles. Profiles are tracked people, not login identities.
 
-- Inactive profiles are excluded from new and current logging (they are never offered as a logging target) but their history remains inspectable.
+- Inactive profiles are excluded from new and current logging (they are never offered as a logging target and cannot gain new records), but their existing records remain inspectable, editable and deletable.
 - The selected profile is the persistent browsing context for profile-scoped screens (Today, History, Insights) and must be unmistakable there; identity color may reinforce it but is never the only cue.
 - New logging (quick logging and adding a night) defaults to the selected profile, but a single logging action may target another active profile. That target is transient: it belongs to that one action, is discarded after save/cancel, never changes the selected profile, and is shown clearly at the action point and in the resulting confirmation. Logging for a target always acts on that person's actual record for the night (an existing incomplete night is completed, never duplicated).
 - Editing an existing night keeps its owning profile; nights are not moved between profiles.
 
 ### Logging and history
 
-For any profile the user can:
+For an active profile the user can create new records:
 
 - record bedtime and wake-up, in either order;
 - save and later complete an incomplete session;
-- add historical sessions;
-- edit both date and clock time of either endpoint;
-- delete a session with an appropriately safe confirmation/undo interaction;
-- inspect chronological history.
+- add historical sessions.
+
+For any profile, active or inactive, the user can work with existing records:
+
+- inspect chronological history;
+- edit both date and clock time of either endpoint (including completing an existing incomplete session);
+- delete a session with an appropriately safe confirmation/undo interaction.
 
 The current-night flow should be exceptionally quick on mobile and require minimal navigation and typing.
 
