@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent, type ReactNode } from 'react';
 import { CircleAlert, Moon, Sun, Trash2, TriangleAlert } from 'lucide-react';
 import { addDays, combine, datePart, daysBetween, isLocalDate, timePart, type LocalDate } from '../domain/civil';
 import { sessionWarnings, timeInBedMinutes, validateSession, type SessionWarningCode } from '../domain/session';
@@ -19,21 +19,45 @@ export interface SessionEditorProps {
   onSubmit: (body: SessionBody) => Promise<void>;
   onDelete?: () => void;
   onCancel: () => void;
+  /** Who the night belongs to: a fixed label, or a picker for new nights. */
+  person?: ReactNode;
+  /** Context from the host (e.g. the chosen person already has this night). */
+  notice?: ReactNode;
+  /** Host-side reason saving is not possible right now (lookup pending or conflict). */
+  submitBlocked?: boolean;
+  onNightDateChange?: (nightDate: LocalDate) => void;
 }
 
 const WARNING_TEXT: Record<SessionWarningCode, string> = {
   short_night: 'That is a very short night. Double-check the times.',
   long_night: 'That is a very long time in bed. Double-check the dates.',
-  early_bedtime: 'Bedtime is more than a day before the night ends.',
+  early_bedtime: 'Bedtime is more than a day before the night ends. Double-check the dates.',
 };
 
-export function SessionEditor({ initial, isNew, maxNightDate, onSubmit, onDelete, onCancel }: SessionEditorProps) {
+const EARLIER = 'earlier';
+
+export function SessionEditor({
+  initial,
+  isNew,
+  maxNightDate,
+  onSubmit,
+  onDelete,
+  onCancel,
+  person,
+  notice,
+  submitBlocked,
+  onNightDateChange,
+}: SessionEditorProps) {
   const formId = useId();
+  const earlierDateId = useId();
   const [nightDate, setNightDate] = useState(initial.nightDate);
   const [hasBed, setHasBed] = useState(initial.bedtime !== null || isNew);
   const [bedOffset, setBedOffset] = useState(() =>
     initial.bedtime ? daysBetween(initial.nightDate, datePart(initial.bedtime)) : -1,
   );
+  // Progressive disclosure: the common evening-before / after-midnight cases stay one tap; an
+  // arbitrary earlier bedtime date is revealed on demand (and shown when editing one).
+  const [showEarlier, setShowEarlier] = useState(() => bedOffset < -1);
   const [bedClock, setBedClock] = useState(initial.bedtime ? timePart(initial.bedtime) : '23:00');
   const [hasWake, setHasWake] = useState(initial.wakeTime !== null || isNew);
   const [wakeClock, setWakeClock] = useState(initial.wakeTime ? timePart(initial.wakeTime) : '07:00');
@@ -50,17 +74,16 @@ export function SessionEditor({ initial, isNew, maxNightDate, onSubmit, onDelete
   const warnings = issues.length === 0 ? sessionWarnings(body) : [];
   const minutes = issues.length === 0 ? timeInBedMinutes(body) : null;
 
-  const bedDayOptions = useMemo(() => {
-    const offsets = [...new Set([-1, 0, bedOffset])].sort((a, b) => a - b);
-    return offsets.map((offset) => ({
-      value: String(offset),
-      label: validDate ? formatShortDate(addDays(nightDate, offset)) : offset === 0 ? 'Same day' : 'Day before',
-    }));
-  }, [bedOffset, nightDate, validDate]);
+  const bedDayOptions = [
+    { value: '-1', label: validDate ? formatShortDate(addDays(nightDate, -1)) : 'Day before' },
+    { value: '0', label: validDate ? formatShortDate(nightDate) : 'Same day' },
+    { value: EARLIER, label: 'Earlier…' },
+  ];
+  const bedDayValue = showEarlier ? EARLIER : String(bedOffset);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (issues.length > 0) return;
+    if (issues.length > 0 || submitBlocked) return;
     setSubmitting(true);
     setServerError(null);
     try {
@@ -73,6 +96,7 @@ export function SessionEditor({ initial, isNew, maxNightDate, onSubmit, onDelete
 
   return (
     <form id={formId} className={styles.form} onSubmit={submit} noValidate>
+      {person}
       <label className={styles.dateRow}>
         <span className={styles.label}>Night ending</span>
         <input
@@ -81,9 +105,13 @@ export function SessionEditor({ initial, isNew, maxNightDate, onSubmit, onDelete
           value={nightDate}
           max={maxNightDate}
           required
-          onChange={(event) => setNightDate(event.target.value)}
+          onChange={(event) => {
+            setNightDate(event.target.value);
+            if (isLocalDate(event.target.value)) onNightDateChange?.(event.target.value);
+          }}
         />
       </label>
+      {notice}
 
       <fieldset className={styles.endpoint}>
         <legend className="visually-hidden">Bedtime</legend>
@@ -100,9 +128,32 @@ export function SessionEditor({ initial, isNew, maxNightDate, onSubmit, onDelete
               size="sm"
               label="Bedtime date"
               options={bedDayOptions}
-              value={String(bedOffset)}
-              onChange={(v) => setBedOffset(Number(v))}
+              value={bedDayValue}
+              onChange={(v) => {
+                if (v === EARLIER) {
+                  setShowEarlier(true);
+                  if (bedOffset > -2) setBedOffset(-2);
+                } else {
+                  setShowEarlier(false);
+                  setBedOffset(Number(v));
+                }
+              }}
             />
+            {showEarlier && validDate && (
+              <label className={styles.dateRow} htmlFor={earlierDateId}>
+                <span className={styles.label}>Bedtime date</span>
+                <input
+                  id={earlierDateId}
+                  type="date"
+                  className={styles.dateInput}
+                  value={addDays(nightDate, bedOffset)}
+                  max={nightDate}
+                  onChange={(event) => {
+                    if (isLocalDate(event.target.value)) setBedOffset(daysBetween(nightDate, event.target.value));
+                  }}
+                />
+              </label>
+            )}
             <TimeField label="Bedtime" value={bedClock} onChange={setBedClock} />
           </div>
         ) : (
@@ -166,7 +217,7 @@ export function SessionEditor({ initial, isNew, maxNightDate, onSubmit, onDelete
         <Button variant="secondary" onClick={onCancel}>
           Cancel
         </Button>
-        <Button variant="primary" type="submit" busy={submitting} disabled={issues.length > 0}>
+        <Button variant="primary" type="submit" busy={submitting} disabled={issues.length > 0 || submitBlocked}>
           {isNew ? 'Save night' : 'Save'}
         </Button>
       </div>

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { SessionEditor } from './SessionEditor';
@@ -98,5 +98,41 @@ describe('SessionEditor', () => {
     await user.click(screen.getByRole('switch', { name: 'Bedtime recorded' }));
     await user.click(screen.getByRole('button', { name: 'Save night' }));
     expect(await screen.findByText('This profile already has a record for that night.')).toBeInTheDocument();
+  });
+
+  it('reveals an arbitrary earlier bedtime date on demand and warns instead of rejecting', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <SessionEditor
+        isNew
+        initial={{ nightDate: '2026-09-25', bedtime: null, wakeTime: null }}
+        maxNightDate="2026-09-26"
+        onSubmit={onSubmit}
+        onCancel={noop}
+      />,
+    );
+    await user.click(screen.getByRole('switch', { name: 'Wake-up recorded' }));
+    expect(screen.queryByLabelText('Bedtime date', { selector: 'input' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('radio', { name: 'Earlier…' }));
+    const date = screen.getByLabelText('Bedtime date', { selector: 'input' });
+    expect(date).toHaveValue('2026-09-23');
+    fireEvent.change(date, { target: { value: '2026-09-20' } });
+    expect(screen.getByText(/more than a day before the night ends/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save night' }));
+    expect(onSubmit).toHaveBeenCalledWith({ nightDate: '2026-09-25', bedtime: '2026-09-20T23:00', wakeTime: null });
+  });
+
+  it('preserves an existing early bedtime date when editing', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const initial = { nightDate: '2026-09-25', bedtime: '2026-09-22T21:15', wakeTime: null };
+    render(
+      <SessionEditor isNew={false} initial={initial} maxNightDate="2026-09-26" onSubmit={onSubmit} onCancel={noop} />,
+    );
+    expect(screen.getByRole('radio', { name: 'Earlier…' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByLabelText('Bedtime date', { selector: 'input' })).toHaveValue('2026-09-22');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onSubmit).toHaveBeenCalledWith(initial);
   });
 });

@@ -315,6 +315,18 @@ function HistoryRow({ row, profile }: { row: Row; profile: Profile }) {
   }
 
   if (row.kind === 'missing') {
+    if (!profile.isActive) {
+      // Inactive profiles keep inspectable history but take no new nights.
+      return (
+        <li className={[styles.row, styles.missingRow].join(' ')}>
+          <DateBlock date={row.date} />
+          <span className={styles.rowMain}>
+            <span className={styles.rowMuted}>No record</span>
+          </span>
+          <span className="visually-hidden">Night ending {formatShortDate(row.date)}: no record</span>
+        </li>
+      );
+    }
     return (
       <li>
         <button
@@ -392,9 +404,11 @@ function MonthOverview({
         sessions={sessions}
         onPrev={canGoBack ? () => onMonthChange(monthStart(month, 1)) : undefined}
         onNext={canGoForward ? () => onMonthChange(monthStart(month, -1)) : undefined}
+        canAdd={profile.isActive}
         onSelectDate={(date) => {
           const session = sessions.find((s) => s.nightDate === date);
-          openEditor(session ? { profile, session } : { profile, nightDate: date });
+          if (session) openEditor({ profile, session });
+          else if (profile.isActive) openEditor({ profile, nightDate: date });
         }}
       />
       {stats && (

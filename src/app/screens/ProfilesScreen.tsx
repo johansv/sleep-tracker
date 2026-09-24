@@ -274,7 +274,7 @@ function ProfileForm({
           value={name}
           maxLength={40}
           autoComplete="off"
-          autoFocus
+          data-autofocus
           placeholder="e.g. Alex"
           aria-invalid={error ? true : undefined}
           onChange={(event) => setName(event.target.value)}

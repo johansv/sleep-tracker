@@ -35,6 +35,8 @@ export default defineConfig({
     colorScheme: 'dark',
     launchOptions,
   },
+  // Every journey runs at the primary mobile target. Layout-sensitive journeys are tagged
+  // `@responsive` and also run on a smaller phone and desktop. Target with --project / --grep.
   projects: [
     {
       name: 'iphone-15-pro-max',
@@ -48,6 +50,7 @@ export default defineConfig({
     },
     {
       name: 'small-mobile',
+      grep: /@responsive/,
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 375, height: 667 },
@@ -56,7 +59,11 @@ export default defineConfig({
         hasTouch: true,
       },
     },
-    { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
+    {
+      name: 'desktop',
+      grep: /@responsive/,
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
+    },
   ],
   webServer: {
     // The production build in the local Workers runtime, against this run's isolated D1 state.

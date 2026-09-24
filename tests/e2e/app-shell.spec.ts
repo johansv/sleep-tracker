@@ -4,12 +4,12 @@ test.beforeEach(async ({ page }) => {
   await setNow(page, '2026-09-24T21:30');
 });
 
-test('navigates between the four jobs of the app shell', async ({ page }) => {
-  await page.goto('/');
-  await expect(page.getByRole('heading', { level: 1, name: 'Today' })).toBeVisible();
+test('navigates between the four jobs of the app shell @responsive', async ({ page }) => {
+  // Deep links are served by the SPA fallback.
+  await page.goto('/insights');
+  await expect(page.getByRole('heading', { level: 1, name: 'Insights' })).toBeVisible();
   for (const [label, heading] of [
     ['History', 'History'],
-    ['Insights', 'Insights'],
     ['People', 'People'],
     ['Today', 'Today'],
   ] as const) {
@@ -20,11 +20,6 @@ test('navigates between the four jobs of the app shell', async ({ page }) => {
       'page',
     );
   }
-});
-
-test('deep links are served by the SPA fallback', async ({ page }) => {
-  await page.goto('/insights');
-  await expect(page.getByRole('heading', { level: 1, name: 'Insights' })).toBeVisible();
 });
 
 test('ships installable, standalone PWA metadata', async ({ page, request }) => {

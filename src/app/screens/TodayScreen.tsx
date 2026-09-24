@@ -1,12 +1,13 @@
-import { useMemo, useState } from 'react';
-import { ArrowRight, BedDouble, ChevronRight, Moon, Pencil, Sun, TriangleAlert } from 'lucide-react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { ArrowRight, BedDouble, ChevronRight, Info, Moon, Pencil, Sun, TriangleAlert } from 'lucide-react';
 import { api } from '../../api/client';
 import { invalidateAll, useQuery } from '../../api/query';
 import { NightBar } from '../../components/NightBar';
+import { ProfileChips } from '../../components/ProfileChips';
 import { formatClock, formatDuration, formatShortDate } from '../../components/format';
 import { addDays, civilMinutesBetween, datePart, type LocalDate, type LocalDateTime } from '../../domain/civil';
 import { periodRange } from '../../domain/period';
-import { nightForBedtime, sessionStatus, timeInBedMinutes } from '../../domain/session';
+import { EVENING_STARTS_AT_HOUR, nightForBedtime, sessionStatus, timeInBedMinutes } from '../../domain/session';
 import { axisOffset, computePeriodStats } from '../../domain/stats';
 import { Button } from '../../design/Button';
 import { LoadingBlock, Skeleton } from '../../design/Skeleton';
@@ -14,6 +15,8 @@ import { Surface, SectionHeader } from '../../design/Surface';
 import { useToast } from '../../design/Toast';
 import type { Profile, SessionBody, SleepSession } from '../../shared/api';
 import { useNightEditor } from '../NightEditor';
+import { useProfiles } from '../ProfileContext';
+import { writeNight } from '../quickLog';
 import { Link } from '../router';
 import { useNow } from '../useNow';
 import { ErrorState, WithSelectedProfile } from './common';
@@ -22,7 +25,11 @@ import styles from './TodayScreen.module.css';
 const LOOKBACK_DAYS = 13;
 
 export function TodayScreen() {
-  return <WithSelectedProfile title="Today">{(profile) => <TodayForProfile profile={profile} />}</WithSelectedProfile>;
+  return (
+    <WithSelectedProfile title="Today">
+      {(profile) => <TodayForProfile key={profile.id} profile={profile} />}
+    </WithSelectedProfile>
+  );
 }
 
 function TodayForProfile({ profile }: { profile: Profile }) {
@@ -49,16 +56,25 @@ function TodayForProfile({ profile }: { profile: Profile }) {
       </Surface>
     );
   }
-  return <TodayContent profile={profile} sessions={query.data} now={now} />;
+  return <TodayContent profile={profile} sessions={query.data} refreshing={query.refreshing} now={now} />;
 }
 
-function TodayContent({ profile, sessions, now }: { profile: Profile; sessions: SleepSession[]; now: LocalDateTime }) {
+function TodayContent({
+  profile,
+  sessions,
+  refreshing,
+  now,
+}: {
+  profile: Profile;
+  sessions: SleepSession[];
+  refreshing: boolean;
+  now: LocalDateTime;
+}) {
   const today = datePart(now);
   const hour = Number(now.slice(11, 13));
   const evening = hour >= 15;
   const heroNight = evening ? addDays(today, 1) : today;
   const byNight = useMemo(() => new Map(sessions.map((s) => [s.nightDate, s])), [sessions]);
-  const hero = byNight.get(heroNight);
   const lastNight = evening ? byNight.get(today) : undefined;
   const { openEditor } = useNightEditor();
 
@@ -70,11 +86,7 @@ function TodayContent({ profile, sessions, now }: { profile: Profile; sessions: 
   return (
     <div className={styles.layout}>
       <div className={styles.primary}>
-        {profile.isActive ? (
-          <HeroCard profile={profile} night={heroNight} session={hero} now={now} byNight={byNight} />
-        ) : (
-          <InactiveCard profile={profile} />
-        )}
+        <QuickLog viewing={profile} viewingSessions={sessions} viewingRefreshing={refreshing} now={now} />
         {evening && (
           <LastNightCard
             night={today}
@@ -142,39 +154,123 @@ function TodayContent({ profile, sessions, now }: { profile: Profile; sessions: 
   );
 }
 
-function useQuickLog(profile: Profile, byNight: Map<LocalDate, SleepSession>) {
+/**
+ * Quick logging for the viewed person by default, or — for a single action — another active
+ * person. The logging target is transient: it never changes the viewing selection and resets after
+ * a save or when the viewed person changes.
+ */
+function QuickLog({
+  viewing,
+  viewingSessions,
+  viewingRefreshing,
+  now,
+}: {
+  viewing: Profile;
+  viewingSessions: SleepSession[];
+  viewingRefreshing: boolean;
+  now: LocalDateTime;
+}) {
+  const { profiles } = useProfiles();
+  const [targetId, setTargetId] = useState<string | null>(null);
+  const reset = () => setTargetId(null);
+  const quick = useQuickLog(reset);
+
+  const today = datePart(now);
+  const target =
+    (targetId ? profiles.find((p) => p.id === targetId && p.isActive) : undefined) ??
+    (viewing.isActive ? viewing : undefined);
+  const other = target !== undefined && target.id !== viewing.id;
+  const from = addDays(today, -1);
+  const to = addDays(today, 1);
+  const targetQuery = useQuery(other ? `sessions:${target.id}:${from}:${to}` : null, () =>
+    api.listSessions(target!.id, { from, to }).then((r) => r.sessions),
+  );
+
+  const picker = (
+    <ProfileChips
+      label={target ? 'Log for' : 'Log for someone else'}
+      size="sm"
+      activeOnly
+      profiles={profiles}
+      selectedId={target?.id ?? null}
+      disabled={quick.busy}
+      onSelect={(id) => setTargetId(id === viewing.id ? null : id)}
+    />
+  );
+
+  if (!target) return <InactiveCard profile={viewing} picker={picker} />;
+
+  const header = (
+    <div className={styles.heroTarget}>
+      {picker}
+      {other && (
+        <p className={styles.targetNote} role="status">
+          <Info aria-hidden="true" />
+          <span>
+            Logging for <strong>{target.name}</strong> · you’re viewing {viewing.name}
+          </span>
+          <button type="button" className={styles.targetReset} onClick={reset}>
+            Back to {viewing.name}
+          </button>
+        </p>
+      )}
+    </div>
+  );
+
+  // One stable card: the picker keeps its place (and keyboard focus) while the body switches
+  // between the chosen person's loading, error and night states.
+  const sessions = other ? targetQuery.data : viewingSessions;
+  const settling = other ? targetQuery.status === 'success' && targetQuery.refreshing : viewingRefreshing;
+  let body: ReactNode;
+  if (other && targetQuery.status === 'error') {
+    body = <ErrorState compact error={targetQuery.error} onRetry={targetQuery.retry} />;
+  } else if (!sessions) {
+    body = (
+      <LoadingBlock label={`Loading ${target.name}’s nights`}>
+        <Skeleton height={180} radius="var(--radius-lg)" />
+      </LoadingBlock>
+    );
+  } else {
+    body = <HeroContent profile={target} sessions={sessions} now={now} quick={quick} settling={settling} />;
+  }
+  return (
+    <Surface tone="accent" padding="lg" className={styles.hero} aria-labelledby="hero-night">
+      {header}
+      {body}
+    </Surface>
+  );
+}
+
+function useQuickLog(onDone: () => void) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
 
-  const record = async (nightDate: LocalDate, patch: Partial<SessionBody>, label: string) => {
-    const existing = byNight.get(nightDate);
-    const body: SessionBody = {
-      nightDate,
-      bedtime: existing?.bedtime ?? null,
-      wakeTime: existing?.wakeTime ?? null,
-      ...patch,
-    };
+  const record = async (target: Profile, nightDate: LocalDate, patch: Partial<SessionBody>, what: string) => {
     setBusy(true);
     try {
-      const saved = existing
-        ? await api.updateSession(existing.id, body)
-        : await api.createSession({ profileId: profile.id, ...body });
+      const { saved, previous } = await writeNight(api, target, nightDate, patch);
       invalidateAll();
+      onDone();
       toast({
         tone: 'success',
-        message: label,
+        message: `${target.name}: ${what} saved`,
         action: {
           label: 'Undo',
           onAction: () => {
-            const revert = existing
+            const revert = previous
               ? api.updateSession(saved.id, {
-                  nightDate: existing.nightDate,
-                  bedtime: existing.bedtime,
-                  wakeTime: existing.wakeTime,
+                  nightDate: previous.nightDate,
+                  bedtime: previous.bedtime,
+                  wakeTime: previous.wakeTime,
                 })
               : api.deleteSession(saved.id);
-            revert.then(invalidateAll, (error: unknown) =>
-              toast({ tone: 'error', message: error instanceof Error ? error.message : 'Could not undo.' }),
+            revert.then(
+              () => {
+                invalidateAll();
+                toast({ message: `${target.name}: ${what} undone` });
+              },
+              (error: unknown) =>
+                toast({ tone: 'error', message: error instanceof Error ? error.message : 'Could not undo.' }),
             );
           },
         },
@@ -188,30 +284,32 @@ function useQuickLog(profile: Profile, byNight: Map<LocalDate, SleepSession>) {
 
   return {
     busy,
-    bedtimeNow: (now: LocalDateTime) =>
-      record(nightForBedtime(now), { bedtime: now }, `Bedtime ${formatClock(now)} saved. Sleep well.`),
-    wakeNow: (now: LocalDateTime) =>
-      record(datePart(now), { wakeTime: now }, `Wake-up ${formatClock(now)} saved. Good morning!`),
+    bedtimeNow: (target: Profile, now: LocalDateTime) =>
+      record(target, nightForBedtime(now), { bedtime: now }, `bedtime ${formatClock(now)}`),
+    wakeNow: (target: Profile, now: LocalDateTime) =>
+      record(target, datePart(now), { wakeTime: now }, `wake-up ${formatClock(now)}`),
   };
 }
 
-function HeroCard({
+function HeroContent({
   profile,
-  night,
-  session,
+  sessions,
   now,
-  byNight,
+  quick,
+  settling,
 }: {
   profile: Profile;
-  night: LocalDate;
-  session: SleepSession | undefined;
+  sessions: SleepSession[];
   now: LocalDateTime;
-  byNight: Map<LocalDate, SleepSession>;
+  quick: ReturnType<typeof useQuickLog>;
+  /** The shown person's data is being refreshed; hold actions until it is current. */
+  settling: boolean;
 }) {
   const { openEditor } = useNightEditor();
-  const quick = useQuickLog(profile, byNight);
   const hour = Number(now.slice(11, 13));
   const today = datePart(now);
+  const night = hour >= EVENING_STARTS_AT_HOUR ? addDays(today, 1) : today;
+  const session = sessions.find((s) => s.nightDate === night);
   const nightIsToday = night === today;
   const edit = () => openEditor(session ? { profile, session } : { profile, nightDate: night });
 
@@ -222,7 +320,8 @@ function HeroCard({
       block={primary}
       icon={<Moon />}
       busy={quick.busy}
-      onClick={() => quick.bedtimeNow(now)}
+      disabled={settling}
+      onClick={() => quick.bedtimeNow(profile, now)}
     >
       Going to bed
     </Button>
@@ -234,7 +333,8 @@ function HeroCard({
       block={primary}
       icon={<Sun />}
       busy={quick.busy}
-      onClick={() => quick.wakeNow(now)}
+      disabled={settling}
+      onClick={() => quick.wakeNow(profile, now)}
     >
       I'm up
     </Button>
@@ -343,12 +443,12 @@ function HeroCard({
   }
 
   return (
-    <Surface tone="accent" padding="lg" className={styles.hero} aria-labelledby="hero-night">
+    <>
       <p id="hero-night" className={styles.heroNight}>
-        Night ending {formatShortDate(night)}
+        {profile.name} · night ending {formatShortDate(night)}
       </p>
       {content}
-    </Surface>
+    </>
   );
 }
 
@@ -361,12 +461,13 @@ function HeroIcon({ kind }: { kind: 'moon' | 'sun' | 'bed' }) {
   );
 }
 
-function InactiveCard({ profile }: { profile: Profile }) {
+function InactiveCard({ profile, picker }: { profile: Profile; picker: ReactNode }) {
   const toast = useToast();
   return (
     <Surface padding="lg" className={styles.hero}>
       <h2 className={styles.heroTitle}>{profile.name} is inactive</h2>
       <p className={styles.heroText}>History stays available. Reactivate to log new nights.</p>
+      <div className={styles.heroTarget}>{picker}</div>
       <div className={styles.heroActions}>
         <Button
           variant="primary"

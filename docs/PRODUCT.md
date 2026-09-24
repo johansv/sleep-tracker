@@ -44,6 +44,11 @@ Examples:
 
 The user can create, rename/edit, activate/deactivate and select profiles, and can inspect history for inactive profiles. Profiles are tracked people, not login identities.
 
+- Inactive profiles are excluded from new and current logging (they are never offered as a logging target) but their history remains inspectable.
+- The selected profile is the persistent browsing context for profile-scoped screens (Today, History, Insights) and must be unmistakable there; identity color may reinforce it but is never the only cue.
+- New logging (quick logging and adding a night) defaults to the selected profile, but a single logging action may target another active profile. That target is transient: it belongs to that one action, is discarded after save/cancel, never changes the selected profile, and is shown clearly at the action point and in the resulting confirmation. Logging for a target always acts on that person's actual record for the night (an existing incomplete night is completed, never duplicated).
+- Editing an existing night keeps its owning profile; nights are not moved between profiles.
+
 ### Logging and history
 
 For any profile the user can:
@@ -63,6 +68,7 @@ The current-night flow should be exceptionally quick on mobile and require minim
 - An incomplete session remains visible and easy to correct.
 - Only complete sessions participate in duration, averages, consistency, comparisons and other statistics.
 - Every statistical view exposes coverage, for example “24 complete nights of 30”.
+- In an in-progress current week/month/year, nights that have not happened yet are not missing and are not part of the coverage denominator.
 
 ### Statistics
 

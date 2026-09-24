@@ -1,9 +1,10 @@
 import { resolveRequestContext } from './context';
-import { ApiError, errorResponse } from './http';
+import { ApiError, assertSameOriginMutation, errorResponse } from './http';
 import { route, type Env } from './routes';
 
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
   try {
+    assertSameOriginMutation(request);
     const ctx = resolveRequestContext(request);
     return await route(request, env, ctx);
   } catch (error) {

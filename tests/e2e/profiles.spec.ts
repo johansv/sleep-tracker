@@ -1,4 +1,4 @@
-import { createProfile, expect, uniqueName, goTo, setNow, test } from './fixtures';
+import { createProfile, expect, goTo, setNow, test, uniqueName, viewing } from './fixtures';
 
 test('administers profiles: create, rename, deactivate, inspect history, reactivate', async ({ page }) => {
   await setNow(page, '2026-09-24T21:30');
@@ -21,10 +21,8 @@ test('administers profiles: create, rename, deactivate, inspect history, reactiv
 
   // Inactive profiles are not offered for logging…
   await goTo(page, 'Today');
-  await page.getByRole('radiogroup', { name: 'Person' }).getByRole('radio', { name: /Alex/ }).click();
-  await expect(
-    page.getByRole('radiogroup', { name: 'Person' }).getByRole('radio', { name: new RegExp(renamed) }),
-  ).toHaveCount(0);
+  await viewing(page).getByRole('radio', { name: /Alex/ }).click();
+  await expect(viewing(page).getByRole('radio', { name: new RegExp(renamed) })).toHaveCount(0);
 
   // …but their history remains inspectable (demo profile Olle is inactive with history).
   await goTo(page, 'People');

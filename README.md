@@ -6,8 +6,8 @@ The product intentionally records local wall-clock values rather than wearable-d
 
 Canonical orientation:
 
-- PRODUCT.md — product purpose, domain/time semantics, V1 capabilities, statistics and UX/design requirements.
-- ARCHITECTURE.md — technical architecture, data model, testing, agent operability, CI and Git workflow.
+- [docs/PRODUCT.md](docs/PRODUCT.md) — product purpose, domain/time semantics, V1 capabilities, statistics and UX/design requirements.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — technical architecture, data model, testing, agent operability, CI and Git workflow.
 - AGENTS.md — concise navigation/execution guidance for coding agents.
 
 ## Stack
@@ -28,19 +28,22 @@ pnpm dev        # SPA + Worker API + local D1 at http://localhost:5173
 
 ## Commands
 
-| Command           | What it does                                                                                            |
-| ----------------- | ------------------------------------------------------------------------------------------------------- |
-| `pnpm dev`        | Full local app (Vite + Workers runtime) against the developer D1 store in `.wrangler/state`.            |
-| `pnpm db:migrate` | Apply `migrations/` to the developer store.                                                             |
-| `pnpm db:seed`    | (Re)load the demo profiles and their nights. Other profiles you entered are left untouched.             |
-| `pnpm db:reset`   | Destroy **only** the local developer D1 store, re-apply migrations and seed it.                         |
-| `pnpm build`      | Production build (`dist/client` assets + `dist/sleep_tracker` Worker).                                  |
-| `pnpm preview`    | Build, then run the built app locally in the Workers runtime (developer store).                         |
-| `pnpm test`       | Domain unit tests, Worker + D1 API integration tests (fresh in-memory D1 per test) and component tests. |
-| `pnpm test:e2e`   | Self-contained Playwright suite at iPhone 15 Pro Max, small-mobile and desktop viewports (see below).   |
-| `pnpm lint`       | ESLint + Prettier check (`pnpm format` rewrites).                                                       |
-| `pnpm typecheck`  | TypeScript for the app, Worker and Node/test code.                                                      |
-| `pnpm check`      | Everything CI runs: lint, typecheck, tests, build and E2E.                                              |
+| Command                 | What it does                                                                                   |
+| ----------------------- | ---------------------------------------------------------------------------------------------- |
+| `pnpm dev`              | Full local app (Vite + Workers runtime) against the developer D1 store in `.wrangler/state`.   |
+| `pnpm db:migrate`       | Apply `migrations/` to the developer store.                                                    |
+| `pnpm db:seed`          | (Re)load the demo profiles and their nights. Other profiles you entered are left untouched.    |
+| `pnpm db:reset`         | Destroy **only** the local developer D1 store, re-apply migrations and seed it.                |
+| `pnpm build`            | Production build (`dist/client` assets + `dist/sleep_tracker` Worker).                         |
+| `pnpm preview`          | Build, then run the built app locally in the Workers runtime (developer store).                |
+| `pnpm fix`              | Mutating cleanup: Prettier, safe ESLint fixes, Prettier again.                                 |
+| `pnpm check`            | Read-only fast gate: format check → lint → typecheck → `pnpm test` → build. No browser needed. |
+| `pnpm test`             | Fast deterministic unit and component tests (domain, demo data, client logic, components).     |
+| `pnpm test:integration` | Worker API against a fresh in-memory D1 per test (Miniflare).                                  |
+| `pnpm test:e2e`         | Self-contained Playwright journeys with their own isolated D1 state and server (see below).    |
+| `pnpm verify`           | Full review-candidate verification: `check` + `test:integration` + `test:e2e`.                 |
+
+Validate progressively: while implementing, run the narrowest relevant command with a file, spec or project filter (`pnpm test src/domain/stats.test.ts`, `pnpm test:e2e tests/e2e/logging.spec.ts --project=desktop`), use `pnpm check` as the fast gate, and run `pnpm verify` once for a review candidate. CI runs the fast gate first and only then integration and browser E2E.
 
 ### Demo data
 
@@ -57,7 +60,8 @@ The ISO week before the anchor's week is a hand-authored fixture week with known
 
 Automated tests never touch the developer database or remote D1:
 
-- Worker/API integration tests create a fresh in-memory D1 database per test with Miniflare.
+- `pnpm test:integration` creates a fresh in-memory D1 database per test with Miniflare.
+- Every E2E journey runs at the primary iPhone 15 Pro Max viewport; journeys tagged `@responsive` also run at a small phone and desktop.
 - `pnpm test:e2e` creates a disposable state directory under `.e2e-state/<run>/`, applies migrations, seeds the demo data at a fixed anchor (2026-09-24), builds the app into that directory and serves the production build with `wrangler dev` on free ports against that state. The directory is removed afterwards (`E2E_KEEP_STATE=1` keeps it). Runs need no pre-started server, and parallel runs don't share mutable state. Tests fix the browser clock and time zone, so results do not depend on the real date.
 - Extra arguments are passed to Playwright, e.g. `pnpm test:e2e --project desktop`.
 - Playwright uses its own Chromium (`pnpm exec playwright install chromium`); set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to use a preinstalled one.
@@ -77,4 +81,4 @@ Automated tests never touch the developer database or remote D1:
 
 ## Delivery model
 
-main is the release branch and dev is the integration branch. Non-trivial implementation is normally described by a GitHub Issue, implemented on a branch from dev and reviewed through a PR back to dev. Releases are explicit dev-to-main integrations. CI (`.github/workflows/ci.yml`) runs `pnpm check` on PRs and pushes to dev/main without any Cloudflare secrets. Remote Cloudflare provisioning and deployment are not set up yet: `wrangler.jsonc` carries a placeholder D1 id for local use only.
+main is the release branch and dev is the integration branch. Non-trivial implementation is normally described by a GitHub Issue, implemented on a branch from dev and reviewed through a PR back to dev. Releases are explicit dev-to-main integrations. CI (`.github/workflows/ci.yml`) runs the fast gate and then integration + E2E on PRs and pushes to dev/main, without any Cloudflare secrets. Remote Cloudflare provisioning and deployment are not set up yet: `wrangler.jsonc` carries a placeholder D1 id for local use only.

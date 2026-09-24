@@ -22,7 +22,12 @@ export function Sheet({ open, title, description, onClose, children, footer }: S
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
+    if (open && !dialog.open) {
+      dialog.showModal();
+      // showModal() focuses the first focusable element (Close). Content may name a better
+      // starting point; React's autoFocus runs before showModal and would be overridden.
+      dialog.querySelector<HTMLElement>('[data-autofocus]')?.focus();
+    }
     if (!open && dialog.open) dialog.close();
   }, [open]);
 

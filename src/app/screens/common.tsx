@@ -102,9 +102,9 @@ export function WithSelectedProfile({
   }
   return (
     <>
-      <PageHeader title={title} actions={actions?.(selected)} />
+      <PageHeader title={title} subtitle={`Showing ${selected.name}`} actions={actions?.(selected)} />
       <div className={styles.chips}>
-        <ProfileChips profiles={profiles} selectedId={selected.id} onSelect={select} />
+        <ProfileChips label="Viewing" profiles={profiles} selectedId={selected.id} onSelect={select} />
       </div>
       {children(selected)}
     </>

@@ -51,6 +51,17 @@ describe('session validation', () => {
     ).toEqual(['long_night']);
   });
 
+  it('allows arbitrarily early historical bedtimes, with a warning instead of a rejection', () => {
+    const bedOnly = { nightDate: '2026-09-25', bedtime: '2026-09-22T21:00', wakeTime: null };
+    expect(validateSession(bedOnly)).toEqual([]);
+    expect(sessionWarnings(bedOnly)).toEqual(['early_bedtime']);
+    const complete = { nightDate: '2026-09-25', bedtime: '2026-09-23T21:00', wakeTime: '2026-09-25T07:00' };
+    expect(validateSession(complete)).toEqual([]);
+    expect(timeInBedMinutes(complete)).toBe(34 * 60);
+    expect(sessionWarnings(complete)).toEqual(['long_night']);
+    expect(sessionWarnings({ nightDate: '2026-09-25', bedtime: '2026-09-24T23:00', wakeTime: null })).toEqual([]);
+  });
+
   it('assigns quick-logged endpoints to the night they end on', () => {
     expect(nightForBedtime('2026-09-24T23:35')).toBe('2026-09-25');
     expect(nightForBedtime('2026-09-25T00:40')).toBe('2026-09-25');

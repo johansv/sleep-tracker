@@ -90,6 +90,25 @@ describe('profiles API', () => {
 });
 
 describe('sessions API', () => {
+  it('stores an arbitrarily early historical bedtime unchanged', async () => {
+    const p = await createProfile();
+    const res = await call<{ session: SleepSession }>('POST', '/api/sessions', {
+      profileId: p.id,
+      nightDate: '2026-09-25',
+      bedtime: '2026-09-21T21:00',
+      wakeTime: '2026-09-25T07:00',
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.session.bedtime).toBe('2026-09-21T21:00');
+    const bedAfterNight = await call('POST', '/api/sessions', {
+      profileId: p.id,
+      nightDate: '2026-09-26',
+      bedtime: '2026-09-27T01:00',
+      wakeTime: null,
+    });
+    expect(bedAfterNight.status).toBe(422);
+  });
+
   it('supports the full create → complete → edit → delete lifecycle', async () => {
     const p = await createProfile();
     const created = await call<{ session: SleepSession }>('POST', '/api/sessions', {
@@ -220,5 +239,61 @@ describe('stats API', () => {
     expect((await call('GET', `/api/stats?profileId=${a.id}&from=2026-09-27&to=2026-09-21`)).status).toBe(400);
     expect((await call('GET', `/api/stats?profileId=${a.id}&from=2020-01-01&to=2026-09-21`)).status).toBe(400);
     expect((await call('GET', `/api/stats?from=2026-09-01&to=2026-09-21`)).status).toBe(400);
+  });
+});
+
+describe('HTTP hardening', () => {
+  const post = (body: string, headers: Record<string, string> = {}) =>
+    handleRequest(
+      new Request('http://local/api/profiles', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body,
+      }),
+      { DB: db },
+    );
+
+  it('marks JSON responses nosniff', async () => {
+    const ok = await handleRequest(new Request('http://local/api/profiles'), { DB: db });
+    expect(ok.headers.get('x-content-type-options')).toBe('nosniff');
+    const error = await handleRequest(new Request('http://local/api/nope'), { DB: db });
+    expect(error.headers.get('x-content-type-options')).toBe('nosniff');
+  });
+
+  it('refuses oversized JSON bodies with a safe 413, with or without a declared length', async () => {
+    const big = JSON.stringify({ name: 'x'.repeat(5000), color: 'teal' });
+    const declared = await post(big, { 'content-length': String(big.length) });
+    expect(declared.status).toBe(413);
+    expect(await declared.json()).toEqual({
+      error: { code: 'payload_too_large', message: 'Request body is too large.' },
+    });
+    const streamed = await handleRequest(
+      new Request('http://local/api/profiles', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: new Blob([big]).stream(),
+        duplex: 'half',
+      } as RequestInit),
+      { DB: db },
+    );
+    expect(streamed.status).toBe(413);
+    expect((await call<{ profiles: Profile[] }>('GET', '/api/profiles')).body.profiles).toHaveLength(0);
+  });
+
+  it('rejects cross-origin browser mutations but allows same-origin and Origin-less requests', async () => {
+    const payload = JSON.stringify({ name: 'Robin', color: 'teal' });
+    const cross = await post(payload, { origin: 'https://evil.example' });
+    expect(cross.status).toBe(403);
+    expect(((await cross.json()) as { error: { code: string } }).error.code).toBe('cross_origin');
+    expect((await post(payload, { origin: 'http://local' })).status).toBe(201);
+    expect((await post(payload)).status).toBe(201);
+    // Reads are not affected by Origin.
+    const read = await handleRequest(
+      new Request('http://local/api/profiles', { headers: { origin: 'https://evil.example' } }),
+      {
+        DB: db,
+      },
+    );
+    expect(read.status).toBe(200);
   });
 });

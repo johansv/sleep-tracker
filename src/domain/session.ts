@@ -24,6 +24,7 @@ export type SessionIssueCode =
   | 'invalid_wake_time'
   | 'no_endpoints'
   | 'wake_date_mismatch'
+  | 'bedtime_after_night'
   | 'wake_not_after_bedtime';
 
 export interface SessionIssue {
@@ -57,6 +58,9 @@ export function validateSession(s: SessionEndpoints): SessionIssue[] {
       message: 'Wake-up must be on the date the night ends.',
     });
   }
+  if (s.bedtime !== null && datePart(s.bedtime) > s.nightDate) {
+    issues.push({ code: 'bedtime_after_night', message: 'Bedtime can’t be after the date the night ends.' });
+  }
   if (s.bedtime !== null && s.wakeTime !== null && civilMinutesBetween(s.bedtime, s.wakeTime) <= 0) {
     issues.push({ code: 'wake_not_after_bedtime', message: 'Wake-up must be after bedtime.' });
   }
@@ -84,9 +88,15 @@ export function sessionWarnings(s: SessionEndpoints): SessionWarningCode[] {
   const minutes = timeInBedMinutes(s);
   if (minutes !== null && minutes < SHORT_NIGHT_MINUTES) warnings.push('short_night');
   if (minutes !== null && minutes > LONG_NIGHT_MINUTES) warnings.push('long_night');
-  if (s.bedtime !== null && s.wakeTime === null && isLocalDateTime(s.bedtime)) {
-    const bedDate = datePart(s.bedtime);
-    if (bedDate !== s.nightDate && bedDate !== addDays(s.nightDate, -1)) warnings.push('early_bedtime');
+  // Bedtimes before the evening preceding the night are allowed but unusual.
+  if (
+    !warnings.includes('long_night') &&
+    s.bedtime !== null &&
+    isLocalDateTime(s.bedtime) &&
+    isLocalDate(s.nightDate) &&
+    datePart(s.bedtime) < addDays(s.nightDate, -1)
+  ) {
+    warnings.push('early_bedtime');
   }
   return warnings;
 }

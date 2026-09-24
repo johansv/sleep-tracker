@@ -283,3 +283,45 @@
   color: var(--color-text-tertiary);
   font-size: var(--text-xs);
 }
+
+.heroTarget {
+  display: grid;
+  gap: var(--space-2);
+  align-self: stretch;
+  margin-bottom: var(--space-3);
+  text-align: left;
+}
+
+.targetNote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-accent-soft);
+  font-size: var(--text-sm);
+}
+
+.targetNote svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--color-accent-strong);
+}
+
+.targetNote span {
+  flex: 1;
+  min-width: 12ch;
+}
+
+.targetReset {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-2);
+  color: var(--color-accent-strong);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}

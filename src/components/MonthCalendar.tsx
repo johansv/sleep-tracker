@@ -13,12 +13,22 @@ export interface MonthCalendarProps {
   today: LocalDate;
   sessions: readonly SleepSession[];
   onSelectDate: (date: LocalDate) => void;
+  /** Whether days without a record can be added (false for inactive profiles). */
+  canAdd?: boolean;
   onPrev?: () => void;
   onNext?: () => void;
 }
 
 /** Month grid of nights (Mon–Sun). Fill encodes time in bed; status also has text/shape. */
-export function MonthCalendar({ month, today, sessions, onSelectDate, onPrev, onNext }: MonthCalendarProps) {
+export function MonthCalendar({
+  month,
+  today,
+  sessions,
+  onSelectDate,
+  onPrev,
+  onNext,
+  canAdd = true,
+}: MonthCalendarProps) {
   const range = periodRange({ kind: 'month', anchor: month });
   const byNight = new Map(sessions.map((s) => [s.nightDate, s]));
   const dates = datesInRange(range.from, range.to);
@@ -47,7 +57,7 @@ export function MonthCalendar({ month, today, sessions, onSelectDate, onPrev, on
           ))}
           {dates.map((date) => {
             const session = byNight.get(date);
-            const future = compareDates(date, today) > 0 && !session;
+            const unavailable = !session && (!canAdd || compareDates(date, today) > 0);
             const status = session ? sessionStatus(session) : 'missing';
             const minutes = session ? timeInBedMinutes(session) : null;
             const intensity = minutes === null ? 0 : Math.min(1, Math.max(0.25, (minutes - 300) / 300));
@@ -62,7 +72,7 @@ export function MonthCalendar({ month, today, sessions, onSelectDate, onPrev, on
                 style={status === 'complete' ? ({ '--intensity': intensity } as CSSProperties) : undefined}
                 aria-label={label}
                 title={label}
-                disabled={future}
+                disabled={unavailable}
                 onClick={() => onSelectDate(date)}
               >
                 <span className="num">{Number(date.slice(8))}</span>

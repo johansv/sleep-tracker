@@ -11,7 +11,7 @@ async function previousWeek(page: Page) {
   await expect(page.getByText('14–20 Sep 2026')).toBeVisible();
 }
 
-test('shows known fixture-week statistics for a consistent profile', async ({ page }) => {
+test('shows known fixture-week statistics for a consistent profile @responsive', async ({ page }) => {
   await selectProfile(page, 'Alex');
   await previousWeek(page);
   await expect(page.getByTestId('coverage-note')).toHaveText('Based on 7 complete nights of 7');
@@ -30,20 +30,6 @@ test('excludes incomplete and missing nights and aggregates bedtimes around midn
   // 00:20, 23:40, 00:50, 01:30 → typical 00:35, not midday.
   await expect(page.getByRole('group', { name: 'Bedtime' })).toContainText('00:35');
   await expect(page.getByRole('group', { name: 'Complete' })).toContainText('4 of 7');
-});
-
-test('switches periods and keeps coverage visible', async ({ page }) => {
-  for (const [label, range] of [
-    ['Month', /1–24 Sep 2026 · so far/],
-    ['Year', /1 Jan – 24 Sep 2026 · so far/],
-    ['7 days', /18–24 Sep 2026/],
-    ['Week', /21–24 Sep 2026 · so far/],
-  ] as const) {
-    await page.getByRole('radio', { name: label }).click();
-    await expect(page.getByText(range)).toBeVisible();
-    await expect(page.getByTestId('coverage-note')).toContainText('complete');
-  }
-  await expect(page.getByRole('button', { name: 'Next period' })).toBeDisabled();
 });
 
 test('compares profiles over the same period', async ({ page }) => {

@@ -18,14 +18,20 @@ export async function createProfile(page: Page, name: string) {
   await page.goto('/profiles');
   await page.getByRole('button', { name: 'Add person' }).first().click();
   const dialog = page.getByRole('dialog', { name: 'Add person' });
+  // The sheet starts focus in the form, not on its Close button.
+  await expect(dialog.getByRole('textbox', { name: 'Name' })).toBeFocused();
   await dialog.getByRole('textbox', { name: 'Name' }).fill(name);
   await dialog.getByRole('button', { name: 'Add person' }).click();
   await expect(page.getByText(`${name} added`)).toBeVisible();
 }
 
+/** The persistent "Viewing" selection on profile-scoped screens. */
+export function viewing(page: Page) {
+  return page.getByRole('radiogroup', { name: 'Viewing' });
+}
+
 export async function selectProfile(page: Page, name: string) {
-  await page
-    .getByRole('radiogroup', { name: 'Person' })
+  await viewing(page)
     .getByRole('radio', { name: new RegExp(name) })
     .click();
 }

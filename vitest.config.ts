@@ -10,7 +10,16 @@ export default defineConfig({
         test: {
           name: 'unit',
           environment: 'node',
-          include: ['src/domain/**/*.test.ts', 'src/worker/**/*.test.ts', 'scripts/**/*.test.ts'],
+          include: ['src/domain/**/*.test.ts', 'src/app/**/*.test.ts', 'scripts/**/*.test.ts'],
+        },
+      },
+      {
+        // Worker API against real (in-memory, per-test) D1 via Miniflare: `pnpm test:integration`.
+        extends: true,
+        test: {
+          name: 'integration',
+          environment: 'node',
+          include: ['src/worker/**/*.test.ts'],
         },
       },
       {
