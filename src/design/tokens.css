@@ -1,0 +1,124 @@
+/*
+ * Semantic design tokens. Components reference these, never raw values.
+ *
+ * Sleep Tracker uses one calm "night" theme: deep blue surfaces, a lavender accent for
+ * selection/primary actions, a night (lavender) vs. dawn (gold) pair for bedtime/wake-up,
+ * and a small identity palette used only to tell profiles apart.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --color-bg: #0b0d17;
+  --color-bg-raised: #10131f;
+  --color-surface: #161a2b;
+  --color-surface-2: #1e2338;
+  --color-surface-3: #282e48;
+  --color-overlay: rgb(5 6 12 / 0.66);
+  --color-border: rgb(255 255 255 / 0.07);
+  --color-border-strong: rgb(255 255 255 / 0.14);
+
+  /* Text */
+  --color-text: #f2f3f9;
+  --color-text-secondary: #aeb2cc;
+  --color-text-tertiary: #8a8fae;
+  --color-text-on-accent: #13132b;
+
+  /* Accent / selection */
+  --color-accent: #a5a3ff;
+  --color-accent-strong: #c2c0ff;
+  --color-accent-soft: rgb(165 163 255 / 0.16);
+  --color-focus: #c9c7ff;
+
+  /* Feedback */
+  --color-success: #62d6a9;
+  --color-success-soft: rgb(98 214 169 / 0.14);
+  --color-warning: #f6a86f;
+  --color-warning-soft: rgb(246 168 111 / 0.14);
+  --color-danger: #ff808b;
+  --color-danger-soft: rgb(255 128 139 / 0.14);
+
+  /* Night semantics */
+  --color-bedtime: #a5a3ff;
+  --color-wake: #f5cf8a;
+  --color-missing: rgb(255 255 255 / 0.12);
+
+  /* Profile identity */
+  --identity-lavender: #a5a3ff;
+  --identity-teal: #52d1c0;
+  --identity-amber: #f2b75b;
+  --identity-rose: #f28bae;
+  --identity-sky: #6db7f7;
+  --identity-lime: #a8d672;
+
+  /* Charts */
+  --chart-primary: var(--color-accent);
+  --chart-primary-muted: rgb(165 163 255 / 0.4);
+  --chart-grid: rgb(255 255 255 / 0.06);
+  --chart-axis: var(--color-text-tertiary);
+  --chart-reference: rgb(245 207 138 / 0.8);
+
+  /* Typography */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, Roboto, sans-serif;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.25rem;
+  --text-display: 3rem;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --leading-tight: 1.15;
+  --leading-normal: 1.45;
+
+  /* Spacing (4px scale) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  /* Shape */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-pill: 999px;
+
+  /* Elevation */
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-2: 0 12px 32px rgb(0 0 0 / 0.45);
+  --shadow-accent: 0 8px 24px rgb(165 163 255 / 0.25);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --duration-fast: 120ms;
+  --duration-base: 220ms;
+
+  /* Layout */
+  --touch-target: 44px;
+  --tabbar-height: 64px;
+  --sidebar-width: 248px;
+  --content-max: 1180px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+  }
+}

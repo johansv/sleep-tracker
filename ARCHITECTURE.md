@@ -56,20 +56,24 @@ Persist a lightweight household boundary even though V1 has no login UI.
 Minimum conceptual schema:
 
 Households:
+
 - id
 - name
 - created_at
 - updated_at
 
 Profiles:
+
 - id
 - household_id → households.id
 - name
+- color (identity color key, presentation only)
 - is_active
 - created_at
 - updated_at
 
 Sleep sessions:
+
 - id
 - profile_id → profiles.id
 - night_date: YYYY-MM-DD local date on which the night ends
