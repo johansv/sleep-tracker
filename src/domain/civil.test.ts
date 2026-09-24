@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { Temporal } from 'temporal-polyfill';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   addDays,
   civilMinutesBetween,
@@ -8,6 +9,8 @@ import {
   isLocalDate,
   isLocalDateTime,
   isoWeekday,
+  nowLocal,
+  todayLocal,
 } from './civil';
 
 describe('civil date-time validation', () => {
@@ -60,5 +63,19 @@ describe('wall-clock arithmetic', () => {
   it('wraps clock minutes', () => {
     expect(clockFromMinuteOfDay(-25)).toBe('23:35');
     expect(clockFromMinuteOfDay(1440 + 70)).toBe('01:10');
+  });
+});
+
+describe('current local time', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('reads the instant from Date so there is a single, controllable clock source', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-24T20:40:00Z'));
+    const expected = Temporal.Instant.from('2026-09-24T20:40:00Z')
+      .toZonedDateTimeISO(Temporal.Now.timeZoneId())
+      .toPlainDateTime();
+    expect(nowLocal()).toBe(expected.toString({ smallestUnit: 'minute' }));
+    expect(todayLocal()).toBe(expected.toPlainDate().toString());
   });
 });

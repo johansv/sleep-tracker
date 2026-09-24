@@ -110,11 +110,25 @@ export function clockFromMinuteOfDay(minutes: number): ClockTime {
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 }
 
+/**
+ * The device's current local wall-clock date-time.
+ *
+ * The instant always comes from `Date.now()` and only the time zone from Temporal. temporal-polyfill
+ * defers to native Temporal where a browser ships it, and native `Temporal.Now` does not follow
+ * `Date` — so reading the instant here keeps one clock source everywhere (including controlled
+ * test clocks).
+ */
+function nowPlainDateTime(): Temporal.PlainDateTime {
+  return Temporal.Instant.fromEpochMilliseconds(Date.now())
+    .toZonedDateTimeISO(Temporal.Now.timeZoneId())
+    .toPlainDateTime();
+}
+
 /** Current local wall-clock date-time of the device, truncated to the minute. */
 export function nowLocal(): LocalDateTime {
-  return Temporal.Now.plainDateTimeISO().toString({ smallestUnit: 'minute' });
+  return nowPlainDateTime().toString({ smallestUnit: 'minute' });
 }
 
 export function todayLocal(): LocalDate {
-  return Temporal.Now.plainDateISO().toString();
+  return nowPlainDateTime().toPlainDate().toString();
 }
