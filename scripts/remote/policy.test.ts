@@ -11,6 +11,7 @@ import {
   ENVIRONMENT_NAMES,
   ENVIRONMENTS,
   isOperationAllowed,
+  isReusableCiRun,
   isSufficientCiEvidence,
   latestMigration,
   OPERATIONS,
@@ -129,6 +130,13 @@ describe('smoke expectations', () => {
 });
 
 describe('release validation evidence', () => {
+  it('only reuses push CI that actually tested the exact SHA', () => {
+    const sha = 'a'.repeat(40);
+    expect(isReusableCiRun({ event: 'push', head_sha: sha }, sha)).toBe(true);
+    expect(isReusableCiRun({ event: 'pull_request', head_sha: sha }, sha)).toBe(false);
+    expect(isReusableCiRun({ event: 'push', head_sha: 'b'.repeat(40) }, sha)).toBe(false);
+  });
+
   it('requires every required CI job to have succeeded', () => {
     const ok = REQUIRED_CI_JOBS.map((name) => ({ name, conclusion: 'success' }));
     expect(isSufficientCiEvidence(ok)).toBe(true);

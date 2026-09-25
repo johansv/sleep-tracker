@@ -25,7 +25,9 @@ export const ENVIRONMENT_NAMES = Object.keys(ENVIRONMENTS) as EnvironmentName[];
 
 export const OPERATIONS = [
   'provision',
+  'doctor',
   'status',
+  'tail',
   'migrate',
   'seed',
   'reset',
@@ -44,6 +46,9 @@ const FORBIDDEN: Record<EnvironmentName, readonly Operation[]> = {
 
 /** The all-zero id in wrangler.jsonc marks an environment whose D1 database is not provisioned. */
 export const PLACEHOLDER_DATABASE_ID = '00000000-0000-0000-0000-000000000000';
+
+/** Stable default for remote demo data; pass --anchor today for an intentionally moving dataset. */
+export const DEFAULT_REMOTE_SEED_ANCHOR = '2026-09-24';
 
 /** The branch production revisions must come from. */
 export const RELEASE_BRANCH = 'main';
@@ -120,6 +125,19 @@ export function smokeProblems(health: HealthResponse, expected: SmokeExpectation
 export interface CiJob {
   name: string;
   conclusion: string | null;
+}
+
+export interface CiWorkflowRun {
+  event: string;
+  head_sha: string;
+}
+
+/**
+ * pull_request CI checks out GitHub's synthetic merge ref by default, so it is integration evidence,
+ * not exact-head evidence. Only a push run for the exact SHA may be reused by a release.
+ */
+export function isReusableCiRun(run: CiWorkflowRun, sha: string): boolean {
+  return run.event === 'push' && run.head_sha === sha;
 }
 
 /**

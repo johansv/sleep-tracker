@@ -12,13 +12,18 @@ on:
         options: [dev, staging, production]
         default: dev
       operation:
-        description: 'status | provision (create D1, report its id) | migrate | seed | reset | reset-and-seed'
+        description: 'doctor | status | provision | migrate | seed | reset | reset-and-seed'
         type: choice
-        options: [status, provision, migrate, seed, reset, reset-and-seed]
+        options: [doctor, status, provision, migrate, seed, reset, reset-and-seed]
         default: status
       confirm:
         description: For reset, type the environment name again
         type: string
+        required: false
+      seed_anchor:
+        description: Demo-data anchor for seed/reset-and-seed (YYYY-MM-DD, or "today" intentionally)
+        type: string
+        default: '2026-09-24'
         required: false
 
 permissions:
@@ -41,6 +46,7 @@ jobs:
       TARGET_ENV: ${{ inputs.environment }}
       OPERATION: ${{ inputs.operation }}
       CONFIRM: ${{ inputs.confirm }}
+      SEED_ANCHOR: ${{ inputs.seed_anchor }}
     steps:
       - name: Check request
         run: |
@@ -58,7 +64,8 @@ jobs:
       - name: ${{ inputs.operation }} ${{ inputs.environment }}
         run: |
           case "$OPERATION" in
+            seed) pnpm cf seed "$TARGET_ENV" --anchor "$SEED_ANCHOR" ;;
             reset) pnpm cf reset "$TARGET_ENV" --confirm "$CONFIRM" ;;
-            reset-and-seed) pnpm cf reset "$TARGET_ENV" --confirm "$CONFIRM" --seed ;;
+            reset-and-seed) pnpm cf reset "$TARGET_ENV" --confirm "$CONFIRM" --seed --anchor "$SEED_ANCHOR" ;;
             *) pnpm cf "$OPERATION" "$TARGET_ENV" ;;
           esac

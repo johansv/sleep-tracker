@@ -66,14 +66,14 @@ The environment is always selected explicitly — `CLOUDFLARE_ENV=<env>` for the
 | `release <env>`                        | ✓             | main only  | Validation evidence → migrate → clean build + deploy → smoke                   |
 | `smoke <env>`                          | ✓             | ✓          | Revision-aware remote health check                                             |
 
-Seed and reset are programmatic refusals for production, not conventions. A release never seeds; seeding is a separate explicit step. Destructive commands print the target environment and database before mutating and act only on remote D1 (`--remote --env`), never on the local developer or test stores.
+Seed and reset are programmatic refusals for production, not conventions. A release never seeds; seeding is a separate explicit step. Remote seed uses the stable canonical anchor `2026-09-24` by default so repeated runs are reproducible; `--anchor today` is an explicit opt-in to a moving dataset. Destructive commands print the target environment and database before mutating and act only on remote D1 (`--remote --env`), never on the local developer or test stores.
 
 ### Release semantics
 
 `release` is the normal deployment and always runs migrations; there is no "skip migrations" flag. `deploy-only` is the explicit escape hatch for redeploying code without touching schema, and `migrate` stays available on its own. A release:
 
 1. requires a clean working tree and records the exact `HEAD` SHA (production: the SHA must be on `main`);
-2. requires validation evidence for that SHA: a successful CI run whose head SHA is the revision and in which both the fast gate and integration/E2E jobs passed (push runs test the SHA itself, PR runs test it merged with its base). Without such evidence it runs `pnpm verify` first instead of rerunning suites that already passed;
+2. requires validation evidence for that exact SHA: only a successful **push** CI run for the SHA is reusable because GitHub `pull_request` CI checks the synthetic merge ref by default. PR merge-ref CI remains valuable integration evidence but is not treated as exact-head release evidence. Without reusable exact-SHA evidence, release runs `pnpm verify` on the selected revision before deploying;
 3. applies pending migrations — a failed migration stops before any code is deployed;
 4. performs a clean `CLOUDFLARE_ENV=<env>` production build into `.deploy/<env>` and deploys it with `APP_REVISION`/`APP_SOURCE` vars and the SHA as Worker version tag/message, so each Worker version traces to its source revision;
 5. smoke-checks `https://<host>/api/health` until it reports the expected environment, the exact revision, a reachable D1 binding and the newest committed migration, and the app page is served. Failure is reported with the environment and revision; success is never claimed without it.
@@ -81,6 +81,12 @@ Seed and reset are programmatic refusals for production, not conventions. A rele
 `GET /api/health` is the safe deployment signal: environment, revision, source label, Worker version metadata and D1 reachability/latest applied migration, with no secrets or application data.
 
 Migrations run before the new code goes live, so the old revision briefly runs against the new schema. Author migrations to be compatible with both (additive/expand–contract: add nullable columns/tables first, remove or tighten in a later release once no deployed code depends on the old shape).
+
+### Operational ergonomics
+
+`pnpm cf doctor <env>` is a read-only preflight for repository config, Cloudflare authentication and D1 reachability. `pnpm cf status-all` inspects all permanent environments, and `pnpm cf tail <env>` is a thin local wrapper around Wrangler live logs. These helpers do not change deployment semantics or create additional infrastructure.
+
+Remote dev/staging builds show a deliberately subtle environment marker. It is fixed-position, pointer-events-none and outside document flow, so it has **zero layout footprint**: it must not change spacing, wrapping, breakpoints, scroll dimensions or component geometry compared with production. Production renders no marker at all. The browser title also includes the non-production environment name.
 
 ### GitHub Actions
 

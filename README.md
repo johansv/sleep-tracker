@@ -94,21 +94,26 @@ pnpm install
 pnpm exec wrangler login                # or export CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
 
 pnpm cf provision staging --write       # once: create the D1 database, write its id to wrangler.jsonc — commit it
+pnpm cf doctor staging                  # read-only config/auth/D1 preflight
 pnpm cf migrate staging                 # apply migrations to the remote database
-pnpm cf seed staging                    # optional demo data (dev/staging only; idempotent)
+pnpm cf seed staging                    # deterministic canonical demo data (dev/staging only)
+pnpm cf seed staging --anchor today     # intentionally move demo data to today's date
 pnpm cf reset staging --confirm staging # destructive: drop all tables and re-migrate (add --seed to reload demo data)
 
-pnpm cf release staging                 # normal: CI evidence (or pnpm verify) → migrate → clean build/deploy → smoke
+pnpm cf release staging                 # exact-revision validation → migrate → clean build/deploy → smoke
 pnpm cf deploy-only staging             # exceptional: deploy code without migrations
 pnpm cf status staging                  # deployed revision/source, Worker version, pending migrations
+pnpm cf status-all                      # inspect all three permanent environments
+pnpm cf tail staging                    # live Worker logs; Ctrl-C to stop
+pnpm cf help                            # compact command reference
 ```
 
-`release`/`deploy-only` deploy the committed `HEAD` (a dirty tree is refused) and label it `local:<branch>` unless `--source` is given; production additionally requires `HEAD` to be on `main`. `seed` and `reset` are refused for production.
+`release`/`deploy-only` deploy the committed `HEAD` (a dirty tree is refused) and label it `local:<branch>` unless `--source` is given; production additionally requires `HEAD` to be on `main`. `seed` and `reset` are refused for production. Remote seed defaults to the stable canonical anchor `2026-09-24`; pass `--anchor today` only when a moving demo dataset is intentional.
 
 ### From GitHub Actions (Actions → Run workflow)
 
 - **Deploy revision (dev/staging)** — a PR number (its current head) or branch (its tip), `release` or `deploy-only`, optionally seeding afterwards. The run summary and a single PR comment show the deployed SHA, URL and Worker version.
-- **Environment operations** — `status`, `provision`, `migrate`, `seed`, `reset`, `reset-and-seed` (reset asks you to type the environment name).
+- **Environment operations** — `doctor`, `status`, `provision`, `migrate`, `seed`, `reset`, `reset-and-seed` (reset asks you to type the environment name; seed anchor is explicit and deterministic).
 - **Release production** — from `main`: releases the main tip or a given commit on main.
 
 One-time setup: create GitHub Environments `dev`, `staging` and `production` (protect `production` with required reviewers and main-only deployments), each with secrets `CLOUDFLARE_API_TOKEN` (Workers Scripts, D1 and Workers Routes/custom domain edit for the `jscodelab.uk` zone) and `CLOUDFLARE_ACCOUNT_ID`; add `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` if the hostnames sit behind Cloudflare Access. Then run **Environment operations → provision** for each environment and commit the reported database id to `wrangler.jsonc`.

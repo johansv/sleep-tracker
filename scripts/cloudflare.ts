@@ -4,14 +4,17 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { unstable_readConfig } from 'wrangler';
+import { Temporal } from 'temporal-polyfill';
 import { todayLocal } from '../src/domain/civil';
 import type { HealthResponse } from '../src/shared/api';
 import { demoSeedSql } from './demo-data';
 import {
   assertOperationAllowed,
   CI_WORKFLOW_PATH,
+  DEFAULT_REMOTE_SEED_ANCHOR,
   DeployError,
   ENVIRONMENTS,
+  isReusableCiRun,
   isSufficientCiEvidence,
   latestMigration,
   parseEnvironment,
@@ -33,9 +36,12 @@ import {
  * this; see docs/ARCHITECTURE.md → Remote environments and README → Deploying.
  *
  *   provision <env> [--write]        create the env's D1 database (if missing), report/write its id
+ *   doctor <env>                     read-only config/auth/D1 preflight
  *   status <env>                     deployed revision, Worker version and D1 migration state
+ *   status-all                       status for all three environments
+ *   tail <env>                       live Worker logs (interactive/local)
  *   migrate <env>                    apply committed migrations to the env's remote D1
- *   seed <env>                       idempotently (re)load demo data            (dev/staging only)
+ *   seed <env> [--anchor date|today] idempotently (re)load demo data            (dev/staging only)
  *   reset <env> --confirm <env> [--seed]  drop all app tables, re-migrate       (dev/staging only)
  *   deploy-only <env> [--source s]   clean build + deploy of HEAD, no migrations
  *   release <env> [--source s]       validation evidence → migrate → clean build + deploy → smoke
@@ -171,14 +177,15 @@ async function github<T>(apiPath: string): Promise<{ status: number; body: T }> 
 async function findCiEvidence(sha: string): Promise<string | null> {
   try {
     const workflow = path.basename(CI_WORKFLOW_PATH);
-    const runs = await github<{ workflow_runs?: Array<{ id: number; html_url: string }> }>(
-      `/actions/workflows/${workflow}/runs?head_sha=${sha}&status=success&per_page=20`,
-    );
+    const runs = await github<{
+      workflow_runs?: Array<{ id: number; html_url: string; event: string; head_sha: string }>;
+    }>(`/actions/workflows/${workflow}/runs?head_sha=${sha}&status=success&per_page=20`);
     if (runs.status !== 200) {
       log(`Could not read CI runs from GitHub (HTTP ${runs.status}).`);
       return null;
     }
     for (const ciRun of runs.body.workflow_runs ?? []) {
+      if (!isReusableCiRun(ciRun, sha)) continue;
       const jobs = await github<{ jobs?: CiJob[] }>(`/actions/runs/${ciRun.id}/jobs?per_page=100`);
       if (jobs.status === 200 && isSufficientCiEvidence(jobs.body.jobs ?? [])) return ciRun.html_url;
     }
@@ -213,11 +220,23 @@ function migrate(env: EnvironmentName): void {
   wrangler(['d1', 'migrations', 'apply', ...d1Args(env)]);
 }
 
-function seed(env: EnvironmentName): void {
+function remoteSeedAnchor(value: string | undefined): string {
+  const requested = value ?? process.env.SEED_ANCHOR ?? DEFAULT_REMOTE_SEED_ANCHOR;
+  if (requested === 'today') return todayLocal();
+  try {
+    return Temporal.PlainDate.from(requested).toString();
+  } catch {
+    throw new DeployError(
+      `Invalid seed anchor "${requested}". Use YYYY-MM-DD or "today" (default: ${DEFAULT_REMOTE_SEED_ANCHOR}).`,
+    );
+  }
+}
+
+function seed(env: EnvironmentName, anchorValue?: string): void {
   assertOperationAllowed('seed', env);
   requireProvisioned(env);
   requireCloudflareAuth();
-  const anchor = process.env.SEED_ANCHOR ?? todayLocal();
+  const anchor = remoteSeedAnchor(anchorValue);
   const dir = mkdtempSync(path.join(tmpdir(), 'sleep-tracker-seed-'));
   try {
     const file = path.join(dir, 'seed.sql');
@@ -229,7 +248,7 @@ function seed(env: EnvironmentName): void {
   }
 }
 
-function reset(env: EnvironmentName, confirm: string | undefined, andSeed: boolean): void {
+function reset(env: EnvironmentName, confirm: string | undefined, andSeed: boolean, seedAnchor?: string): void {
   assertOperationAllowed('reset', env);
   const databaseId = requireProvisioned(env);
   if (confirm !== env) {
@@ -266,7 +285,27 @@ function reset(env: EnvironmentName, confirm: string | undefined, andSeed: boole
     ]);
   }
   migrate(env);
-  if (andSeed) seed(env);
+  if (andSeed) seed(env, seedAnchor);
+}
+
+function doctor(env: EnvironmentName): void {
+  const { worker, database } = ENVIRONMENTS[env];
+  const { databaseId } = readEnvironmentConfig(env);
+  log(`Doctor ${env}: Worker ${worker} · D1 ${database} · ${publicUrl(env)}`);
+  if (databaseId === PLACEHOLDER_DATABASE_ID) {
+    throw new DeployError(
+      `${env} is not provisioned in ${CONFIG}. Run \`pnpm cf provision ${env} --write\` locally, or provision in GitHub and commit the reported id.`,
+    );
+  }
+  requireCloudflareAuth();
+  wrangler(['d1', 'migrations', 'list', ...d1Args(env)]);
+  log(`Doctor passed for ${env}: config, credentials and D1 binding are usable.`);
+}
+
+function tail(env: EnvironmentName): void {
+  requireCloudflareAuth();
+  log(`Tailing ${ENVIRONMENTS[env].worker}; press Ctrl-C to stop.`);
+  wrangler(['tail', ENVIRONMENTS[env].worker, '--format', 'pretty']);
 }
 
 async function provision(env: EnvironmentName, write: boolean): Promise<void> {
@@ -452,6 +491,19 @@ async function deployRevision(
   output({ version_id: versionId ?? '' });
 }
 
+async function statusAll(): Promise<boolean> {
+  let healthy = true;
+  for (const env of ENVIRONMENT_NAMES) {
+    try {
+      if (!(await status(env))) healthy = false;
+    } catch (error) {
+      healthy = false;
+      log(`${env}: status failed (${error instanceof Error ? error.message : String(error)})`);
+    }
+  }
+  return healthy;
+}
+
 async function status(env: EnvironmentName): Promise<boolean> {
   const { worker, database } = ENVIRONMENTS[env];
   log(`${env}: ${publicUrl(env)} · Worker ${worker} · D1 ${database} (${readEnvironmentConfig(env).databaseId})`);
@@ -529,9 +581,34 @@ async function main(argv: string[]): Promise<number> {
       confirm: { type: 'string' },
       seed: { type: 'boolean', default: false },
       write: { type: 'boolean', default: false },
+      anchor: { type: 'string' },
     },
   });
   const [command, arg1, arg2] = positionals;
+
+  if (!command || command === 'help') {
+    console.log(`Usage: pnpm cf <command> [environment]
+
+Happy path:
+  pnpm cf doctor staging
+  pnpm cf release staging
+  pnpm cf status staging
+
+Commands:
+  provision <env> [--write]
+  doctor <env>
+  status <env> | status-all
+  tail <env>
+  migrate <env>
+  seed <env> [--anchor YYYY-MM-DD|today]
+  reset <env> --confirm <env> [--seed] [--anchor YYYY-MM-DD|today]
+  deploy-only <env>
+  release <env>
+  smoke <env>
+`);
+    return 0;
+  }
+  if (command === 'status-all') return (await statusAll()) ? 0 : 1;
 
   if (command === 'evidence') {
     const sha = arg1 ?? git(['rev-parse', 'HEAD']);
@@ -553,16 +630,22 @@ async function main(argv: string[]): Promise<number> {
       requireCloudflareAuth();
       await provision(env, values.write);
       return 0;
+    case 'doctor':
+      doctor(env);
+      return 0;
     case 'status':
       return (await status(env)) ? 0 : 1;
+    case 'tail':
+      tail(env);
+      return 0;
     case 'migrate':
       migrate(env);
       return 0;
     case 'seed':
-      seed(env);
+      seed(env, values.anchor);
       return 0;
     case 'reset':
-      reset(env, values.confirm, values.seed);
+      reset(env, values.confirm, values.seed, values.anchor);
       return 0;
     case 'deploy-only':
     case 'release':

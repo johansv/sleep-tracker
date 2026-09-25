@@ -29,6 +29,10 @@ on:
         description: Pull request to comment on (0 = none)
         type: number
         default: 0
+      seed_anchor:
+        description: Deterministic demo-data anchor (YYYY-MM-DD or today)
+        type: string
+        default: '2026-09-24'
 
 permissions:
   contents: read
@@ -59,6 +63,7 @@ jobs:
       SHA: ${{ inputs.sha }}
       SOURCE: ${{ inputs.source }}
       OPERATION: ${{ inputs.operation }}
+      SEED_ANCHOR: ${{ inputs.seed_anchor }}
     steps:
       - name: Check inputs
         env:
@@ -94,7 +99,7 @@ jobs:
 
       - name: Seed demo data
         if: inputs.seed
-        run: pnpm cf seed "$TARGET_ENV"
+        run: pnpm cf seed "$TARGET_ENV" --anchor "$SEED_ANCHOR"
 
       - name: Comment on pull request
         if: always() && inputs.pr > 0 && steps.deploy.outcome != 'skipped'
