@@ -13,6 +13,7 @@ import {
   CI_WORKFLOW_PATH,
   DEFAULT_REMOTE_SEED_ANCHOR,
   DeployError,
+  ENVIRONMENT_NAMES,
   ENVIRONMENTS,
   isReusableCiRun,
   isSufficientCiEvidence,
