@@ -31,7 +31,89 @@ Browser / installed PWA → same-origin Cloudflare Worker → D1.
 
 The Worker serves built SPA assets and handles /api routes. Keep one deployable application unless a concrete constraint makes separation valuable.
 
-The V1 implementation milestone is local-only: no Cloudflare account, remote D1 database or deployment credentials may be required to develop, build, test or run the application locally. `pnpm preview` must build and run the resulting application locally in the Workers runtime as a production-like validation path. Remote Cloudflare provisioning/deployment is a later task.
+No Cloudflare account, remote D1 database or deployment credentials may be required to develop, build, test or run the application locally. `pnpm preview` must build and run the resulting application locally in the Workers runtime as a production-like validation path. Remote deployment is described below and is always an explicit, separate action.
+
+## Remote environments
+
+Three permanent environments, each with its own Worker and its own D1 database bound as `DB`:
+
+| Environment | Public hostname              | Worker / D1 database       |
+| ----------- | ---------------------------- | -------------------------- |
+| dev         | `sleep-dev.jscodelab.uk`     | `sleep-tracker-dev`        |
+| staging     | `sleep-staging.jscodelab.uk` | `sleep-tracker-staging`    |
+| production  | `sleep.jscodelab.uk`         | `sleep-tracker-production` |
+
+There are no per-PR Workers, databases or hostnames; a deployment replaces what runs in the target environment.
+
+### Configuration
+
+`wrangler.jsonc` is the source of truth. Its top level is the local development/test configuration (placeholder D1 id, `APP_ENV=local`); `env.dev`, `env.staging` and `env.production` each repeat the non-inheritable bindings (`DB`, `vars.APP_ENV`, version metadata) with their own D1 database and a custom-domain route. An all-zero `database_id` means the environment is not provisioned yet.
+
+The environment is always selected explicitly — `CLOUDFLARE_ENV=<env>` for the Cloudflare Vite plugin build and `--env <env>` for Wrangler D1 commands — never inferred from the checked-out branch. Tooling refuses to deploy a build whose generated config does not name the expected Worker, D1 database and `APP_ENV`.
+
+### Command surface
+
+`pnpm cf <command> <env>` (`scripts/cloudflare.ts`, rules in `scripts/remote/policy.ts`) is the only implementation of remote operations; local use and GitHub Actions call the same commands.
+
+| Command                                | dev / staging | production | What it does                                                                   |
+| -------------------------------------- | ------------- | ---------- | ------------------------------------------------------------------------------ |
+| `provision <env> [--write]`            | ✓             | ✓          | Create the D1 database if missing; report (or write) the id for wrangler.jsonc |
+| `status <env>`                         | ✓             | ✓          | Health/revision/source/Worker version, active deployment, pending migrations   |
+| `migrate <env>`                        | ✓             | ✓          | Apply committed migrations to the remote D1                                    |
+| `seed <env>`                           | ✓             | refused    | Idempotently (re)load the deterministic demo data (`SEED_ANCHOR` pins it)      |
+| `reset <env> --confirm <env> [--seed]` | ✓             | refused    | Drop every application table, re-migrate (then seed)                           |
+| `deploy-only <env>`                    | ✓             | main only  | Clean build + deploy of `HEAD` without migrations (exceptional)                |
+| `release <env>`                        | ✓             | main only  | Validation evidence → migrate → clean build + deploy → smoke                   |
+| `smoke <env>`                          | ✓             | ✓          | Revision-aware remote health check                                             |
+
+Seed and reset are programmatic refusals for production, not conventions. A release never seeds; seeding is a separate explicit step. Remote seed uses the stable canonical anchor `2026-09-24` by default so repeated runs are reproducible; `--anchor today` is an explicit opt-in to a moving dataset. Destructive commands print the target environment and database before mutating and act only on remote D1 (`--remote --env`), never on the local developer or test stores.
+
+### Release semantics
+
+`release` is the normal deployment and always runs migrations; there is no "skip migrations" flag. `deploy-only` is the explicit escape hatch for redeploying code without touching schema, and `migrate` stays available on its own. A release:
+
+1. requires a clean working tree and records the exact `HEAD` SHA (production: the SHA must be on `main`);
+2. requires validation evidence for that exact SHA: only a successful **push** CI run for the SHA is reusable because GitHub `pull_request` CI checks the synthetic merge ref by default. PR merge-ref CI remains valuable integration evidence but is not treated as exact-head release evidence. Without reusable exact-SHA evidence, release runs `pnpm verify` on the selected revision before deploying;
+3. applies pending migrations — a failed migration stops before any code is deployed;
+4. performs a clean `CLOUDFLARE_ENV=<env>` production build into `.deploy/<env>` and deploys it with `APP_REVISION`/`APP_SOURCE` vars and the SHA as Worker version tag/message, so each Worker version traces to its source revision;
+5. smoke-checks `https://<host>/api/health` until it reports the expected environment, the exact revision, a reachable D1 binding and the newest committed migration, and the app page is served. Failure is reported with the environment and revision; success is never claimed without it.
+
+`GET /api/health` is the safe deployment signal: environment, revision, source label, Worker version metadata and D1 reachability/latest applied migration, with no secrets or application data.
+
+Migrations run before the new code goes live, so the old revision briefly runs against the new schema. Author migrations to be compatible with both (additive/expand–contract: add nullable columns/tables first, remove or tighten in a later release once no deployed code depends on the old shape).
+
+### Operational ergonomics
+
+`pnpm cf doctor <env>` is a read-only preflight for repository config, Cloudflare authentication and D1 reachability. `pnpm cf status-all` inspects all permanent environments, and `pnpm cf tail <env>` is a thin local wrapper around Wrangler live logs. These helpers do not change deployment semantics or create additional infrastructure.
+
+Remote dev/staging builds show a deliberately subtle environment marker. It is fixed-position, pointer-events-none and outside document flow, so it has **zero layout footprint**: it must not change spacing, wrapping, breakpoints, scroll dimensions or component geometry compared with production. Production renders no marker at all. The browser title also includes the non-production environment name.
+
+### GitHub Actions
+
+Manually triggered workflows provide the whole remote lifecycle without a developer workstation:
+
+- **Deploy revision (dev/staging)** (`deploy-revision.yml`) — choose `dev` or `staging`, a same-repository PR number (its current head; fork PRs are refused) or a branch (its tip at workflow start), and `release` (default) or `deploy-only`, optionally seeding afterwards. The SHA is resolved once and used throughout. The job summary — and for PRs a single upserted PR comment — shows source, SHA, environment, URL and Worker version. It cannot target production.
+- **Release production** (`release-production.yml`) — run from `main`; releases the main tip or a given commit on main. No seed/reset.
+- **Environment operations** (`environment-operations.yml`) — `status`, `provision`, `migrate`, `seed`, `reset`, `reset-and-seed` for a chosen environment; migrations/seed come from the branch the workflow runs from, production only from `main`; seed/reset refused for production. Reset requires typing the environment name.
+
+Deploy jobs run in the reusable `cloudflare-deploy.yml`. Every mutating job uses the GitHub Environment of its target (`dev`, `staging`, `production`) for `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID` secrets and protection rules, and the shared concurrency group `cloudflare-<env>` so releases, migrations and resets never race on one environment. Protect `production` with required reviewers and a `main`-only deployment branch policy. Production deployment is never automatic.
+
+Credential trust boundary: a deployment executes the selected revision's own install, build and deploy tooling, so only revisions from this repository are deployable — `pnpm cf resolve` refuses fork PRs (the PR head repository must be this repository). Cloudflare/Access secrets are scoped to the individual steps that talk to Cloudflare, never job-wide: checkout, `pnpm install` and a fallback `pnpm verify` run without them, and `release --verified` then records that validation instead of re-running it. Deploying arbitrary external PRs would need a trusted control plane that never runs PR-owned tooling with credentials; that is out of scope.
+
+### Bootstrap versus routine operation
+
+Bootstrap is one-time per environment: `provision` creates the D1 database and reports its id, which is committed to `wrangler.jsonc` (locally `--write` edits the file; in Actions the id appears in the job summary). The custom domain is attached by the first deploy (the `jscodelab.uk` zone must be in the same Cloudflare account). Everything after that — status, migrate, seed/reset where allowed, deploy-only and release — runs from GitHub Actions or locally with identical behavior.
+
+### Rollback and database recovery
+
+These are separate concerns.
+
+- **Code rollback**: `pnpm exec wrangler rollback --name sleep-tracker-<env> [<version-id>]` (or the dashboard) restores an earlier Worker version; `status` and the version tag/message identify the revision each version came from. This does not touch D1: only roll back code that is compatible with the current schema, otherwise roll forward with a fix.
+- **Database recovery**: for genuine data/schema incidents use D1 Time Travel, naming the environment's database explicitly — `pnpm exec wrangler d1 time-travel info sleep-tracker-<env>` then `… d1 time-travel restore sleep-tracker-<env> --timestamp=<time>`. Restores are deliberate manual operations; ordinary releases never roll back D1.
+
+### Access control
+
+Deployment plumbing is not an access-control boundary. Before production holds real personal data, put the hostnames behind an appropriate boundary (for example Cloudflare Access); smoke/status then authenticate with an Access service token via the optional `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` environment secrets. No application auth bypass exists or may be added for deployment tooling.
 
 ## Intended repository map
 
@@ -43,7 +125,7 @@ The V1 implementation milestone is local-only: no Cloudflare account, remote D1 
 - src/worker — Worker entry, routes and D1 persistence adapters
 - src/shared — only genuinely shared schemas/types
 - migrations — versioned D1 SQL migrations
-- scripts — seed/reset helpers when useful
+- scripts — seed/reset helpers and the `pnpm cf` remote operations (`scripts/remote` holds its pure rules)
 - public — PWA manifest assets/icons
 - tests/e2e — Playwright browser flows
 
@@ -220,7 +302,7 @@ Green unit/CI output is not proof of responsive interaction quality. Browser evi
 
 GitHub Actions CI runs for PRs to dev/main and relevant pushes, reusing repository commands rather than CI-only rules. Every push gets the fast gate (`pnpm check`) without browser infrastructure. Integration and browser E2E run as a dependent job only after it passes, and only for review candidates (non-draft PRs, including when a draft is marked ready for review) and pushes to dev/main; draft PR pushes stop at the fast gate.
 
-CI must be able to validate V1 without Cloudflare secrets or remote resources and must use isolated disposable local D1 state for persistence-dependent tests. Deployment is separate from ordinary CI unless explicitly configured later.
+CI must be able to validate V1 without Cloudflare secrets or remote resources and must use isolated disposable local D1 state for persistence-dependent tests. Deployment is separate from ordinary CI: remote workflows are manual (see Remote environments) and reuse green CI runs as release evidence.
 
 ## Git and delivery model
 
@@ -228,6 +310,7 @@ CI must be able to validate V1 without Cloudflare secrets or remote resources an
 - dev is the integration branch.
 - ordinary feature/fix branches start from current dev and target dev.
 - releases are explicit dev → main integrations.
+- dev/staging environments take any PR head or branch tip on demand; production only takes revisions on main.
 
 After this baseline, dev should point at the same commit as main before implementation begins.
 

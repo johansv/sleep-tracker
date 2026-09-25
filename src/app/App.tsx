@@ -13,6 +13,9 @@ import { LoadingBlock, Skeleton } from '../design/Skeleton';
 import { AppLogo } from './AppLogo';
 import styles from './App.module.css';
 
+declare const __DEPLOY_ENV__: string;
+const NON_PROD_ENV = __DEPLOY_ENV__ === 'dev' || __DEPLOY_ENV__ === 'staging' ? __DEPLOY_ENV__ : null;
+
 const NAV: Array<{ path: RoutePath; label: string; icon: typeof MoonStar }> = [
   { path: '/', label: 'Today', icon: MoonStar },
   { path: '/history', label: 'History', icon: CalendarDays },
@@ -47,6 +50,15 @@ function Shell() {
   const online = useOnline();
   const Screen = SCREENS[path];
 
+  useEffect(() => {
+    if (!NON_PROD_ENV) return;
+    const previous = document.title;
+    document.title = `${previous} · ${NON_PROD_ENV.toUpperCase()}`;
+    return () => {
+      document.title = previous;
+    };
+  }, []);
+
   // Online-only: refresh whenever the app regains focus or connectivity.
   useEffect(() => {
     const refresh = () => {
@@ -62,6 +74,11 @@ function Shell() {
 
   return (
     <div className={styles.shell}>
+      {NON_PROD_ENV && (
+        <div className={styles.environmentIndicator} aria-hidden="true" title={`Environment: ${NON_PROD_ENV}`}>
+          {NON_PROD_ENV.toUpperCase()}
+        </div>
+      )}
       <nav className={styles.nav} aria-label="Main">
         <div className={styles.brand}>
           <AppLogo />

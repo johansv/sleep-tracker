@@ -1,0 +1,87 @@
+name: Deploy revision (dev/staging)
+run-name: ${{ inputs.operation }} ${{ inputs.source }} ${{ inputs.ref }} → ${{ inputs.environment }}
+
+# Manually deploy the exact head of a PR, or the latest commit of a branch, to the permanent dev or
+# staging environment (replacing whatever runs there). Production is deliberately not a choice:
+# see release-production.yml.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [dev, staging]
+        default: dev
+      source:
+        description: Deploy a pull request head or a branch tip
+        type: choice
+        options: [pr, branch]
+        default: pr
+      ref:
+        description: PR number or branch name
+        type: string
+        required: true
+      operation:
+        description: release = migrate → build/deploy → smoke. deploy-only skips migrations (exceptional).
+        type: choice
+        options: [release, deploy-only]
+        default: release
+      seed:
+        description: Afterwards, (re)load deterministic demo data
+        type: boolean
+        default: false
+      seed_anchor:
+        description: Demo-data anchor (YYYY-MM-DD, or "today" intentionally)
+        type: string
+        default: '2026-09-24'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Resolve revision
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      source: ${{ steps.resolve.outputs.source }}
+      pr: ${{ steps.resolve.outputs.pr }}
+    steps:
+      - name: Check target
+        env:
+          TARGET_ENV: ${{ inputs.environment }}
+        run: |
+          case "$TARGET_ENV" in dev|staging) ;; *) echo "::error::This workflow only deploys to dev or staging."; exit 1;; esac
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Resolve ${{ inputs.source }} ${{ inputs.ref }}
+        id: resolve
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          KIND: ${{ inputs.source }}
+          REF: ${{ inputs.ref }}
+        run: pnpm cf resolve "$KIND" "$REF"
+
+  deploy:
+    needs: resolve
+    uses: ./.github/workflows/cloudflare-deploy.yml
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    secrets: inherit
+    with:
+      environment: ${{ inputs.environment }}
+      sha: ${{ needs.resolve.outputs.sha }}
+      source: ${{ needs.resolve.outputs.source }}
+      operation: ${{ inputs.operation }}
+      seed: ${{ inputs.seed }}
+      seed_anchor: ${{ inputs.seed_anchor }}
+      pr: ${{ fromJSON(needs.resolve.outputs.pr) }}

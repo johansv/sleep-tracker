@@ -2,8 +2,9 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { Miniflare } from 'miniflare';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import type { Profile, SessionListResponse, SleepSession, StatsResponse } from '../shared/api';
+import type { HealthResponse, Profile, SessionListResponse, SleepSession, StatsResponse } from '../shared/api';
 import { handleRequest } from './index';
+import type { Env } from './routes';
 
 /**
  * API integration tests against a real (in-memory, test-owned) D1 database. A fresh database is
@@ -295,5 +296,62 @@ describe('HTTP hardening', () => {
       },
     );
     expect(read.status).toBe(200);
+  });
+});
+
+describe('health API', () => {
+  async function health(env: Omit<Env, 'DB'> & { DB?: D1Database } = {}) {
+    const response = await handleRequest(new Request('http://local/api/health'), { DB: db, ...env });
+    return { status: response.status, body: (await response.json()) as HealthResponse };
+  }
+
+  it('reports a local, reachable database without deployment identity', async () => {
+    const res = await health();
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      ok: true,
+      environment: 'local',
+      revision: null,
+      source: null,
+      workerVersion: null,
+      database: { ok: true, latestMigration: null },
+    });
+  });
+
+  it('reports the deployed environment, revision, Worker version and newest applied migration', async () => {
+    await db.batch([
+      db.prepare(
+        'CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TEXT)',
+      ),
+      db.prepare(
+        "INSERT INTO d1_migrations (name, applied_at) VALUES ('0001_initial.sql', 'x'), ('0002_next.sql', 'y')",
+      ),
+    ]);
+    const res = await health({
+      APP_ENV: 'staging',
+      APP_REVISION: 'a'.repeat(40),
+      APP_SOURCE: 'pr:12',
+      CF_VERSION_METADATA: { id: 'ver-1', tag: 'aaaaaaa', timestamp: '2026-09-25T00:00:00Z' },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      ok: true,
+      environment: 'staging',
+      revision: 'a'.repeat(40),
+      source: 'pr:12',
+      workerVersion: { id: 'ver-1', tag: 'aaaaaaa', timestamp: '2026-09-25T00:00:00Z' },
+      database: { ok: true, latestMigration: '0002_next.sql' },
+    });
+  });
+
+  it('fails with 503 when the D1 binding does not answer', async () => {
+    const broken = {
+      prepare: () => {
+        throw new Error('no such database');
+      },
+    } as unknown as D1Database;
+    const res = await health({ DB: broken });
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ ok: false, database: { ok: false, latestMigration: null } });
   });
 });

@@ -63,3 +63,20 @@ export interface CreateSessionInput extends SessionBody {
 export interface ApiErrorBody {
   error: { code: string; message: string; details?: string[] };
 }
+
+/**
+ * `GET /api/health`: safe deployment signal used by remote smoke/status checks. Exposes which
+ * environment and source revision is running and whether the D1 binding answers, never data.
+ */
+export interface HealthResponse {
+  ok: boolean;
+  /** `local` for development/tests, otherwise `dev`, `staging` or `production`. */
+  environment: string;
+  /** Git commit SHA the deployment was built from (null when not deployed by `pnpm cf`). */
+  revision: string | null;
+  /** Where that revision came from, e.g. `pr:12`, `branch:dev` or `local`. */
+  source: string | null;
+  /** Cloudflare Worker version, when the runtime provides version metadata. */
+  workerVersion: { id: string; tag: string | null; timestamp: string | null } | null;
+  database: { ok: boolean; latestMigration: string | null };
+}
