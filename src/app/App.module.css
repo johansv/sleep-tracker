@@ -160,7 +160,6 @@
   }
 }
 
-
 /* Non-production context only. Fixed positioning gives this zero layout footprint: it never
    changes production spacing, wrapping, breakpoints, scroll size or component geometry. */
 .environmentIndicator {
