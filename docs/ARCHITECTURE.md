@@ -208,7 +208,7 @@ Use Vitest (or the current Vite-aligned equivalent) for fast domain tests. Cover
 
 Use React Testing Library or equivalent for meaningful component behavior; avoid markup-freezing snapshot-heavy suites.
 
-Put Worker/D1 persistence tests behind `test:integration`. Reserve Playwright for behavior where the browser/end-to-end boundary adds confidence: profile administration, bedtime/wake logging (including a transient logging target), incomplete completion, historical add/edit/delete, statistics coverage/exclusion, representative profile comparison and app-shell/PWA navigation. Prefer the cheapest layer that gives equivalent confidence; keep tests that protect non-trivial behavior, domain invariants, integration boundaries, critical journeys or demonstrated regressions.
+Put Worker/D1 persistence tests behind `test:integration`. Reserve Playwright for behavior where the browser/end-to-end boundary adds confidence: profile administration, bedtime/wake logging through the reviewed night editor, incomplete completion, historical add/edit/delete, statistics coverage/exclusion, representative profile comparison and app-shell/PWA navigation. Prefer the cheapest layer that gives equivalent confidence; keep tests that protect non-trivial behavior, domain invariants, integration boundaries, critical journeys or demonstrated regressions.
 
 Browser journeys run at the primary iPhone 15 Pro Max-equivalent viewport. Only layout-sensitive journeys (tagged `@responsive`) also run at a smaller mobile viewport and normal desktop; functional flows are not multiplied across viewports.
 

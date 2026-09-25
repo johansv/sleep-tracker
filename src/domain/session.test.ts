@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  inferBedtimeOffset,
   nightForBedtime,
+  openNightState,
+  resolveBedtime,
   nightForWake,
   sessionStatus,
   sessionWarnings,
@@ -66,5 +69,28 @@ describe('session validation', () => {
     expect(nightForBedtime('2026-09-24T23:35')).toBe('2026-09-25');
     expect(nightForBedtime('2026-09-25T00:40')).toBe('2026-09-25');
     expect(nightForWake('2026-09-25T07:10')).toBe('2026-09-25');
+  });
+
+  it('derives ordinary bedtime dates from clock times around midnight', () => {
+    expect(resolveBedtime('2026-09-24', '23:30', '07:00')).toBe('2026-09-23T23:30');
+    expect(resolveBedtime('2026-09-24', '01:30', '07:00')).toBe('2026-09-24T01:30');
+    expect(resolveBedtime('2026-09-24', '00:00', '07:00')).toBe('2026-09-24T00:00');
+    // Day sleepers: bedtime is the latest occurrence of its clock before wake-up.
+    expect(resolveBedtime('2026-09-24', '08:00', '15:00')).toBe('2026-09-24T08:00');
+    // Equal clocks are ambiguous (nothing, or a full day): never guessed.
+    expect(inferBedtimeOffset('07:00', '07:00')).toBeNull();
+    expect(resolveBedtime('2026-09-24', '07:00', '07:00')).toBeNull();
+    // Without a wake-up, noon splits the evening before from after midnight.
+    expect(inferBedtimeOffset('12:00', null)).toBe(-1);
+    expect(inferBedtimeOffset('11:59', null)).toBe(0);
+    expect(inferBedtimeOffset('22:40', null)).toBe(-1);
+  });
+
+  it('distinguishes an in-progress bedtime-only night from a stale one', () => {
+    expect(openNightState('2026-09-24T22:40', '2026-09-24T22:30')).toBe('upcoming');
+    expect(openNightState('2026-09-24T22:40', '2026-09-24T22:40')).toBe('in_progress');
+    expect(openNightState('2026-09-24T22:40', '2026-09-25T06:55')).toBe('in_progress');
+    expect(openNightState('2026-09-24T22:40', '2026-09-25T12:40')).toBe('in_progress');
+    expect(openNightState('2026-09-24T22:40', '2026-09-25T12:41')).toBe('stale');
   });
 });

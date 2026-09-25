@@ -60,3 +60,8 @@
   font-size: var(--text-xs);
   text-align: center;
 }
+
+.input::placeholder {
+  color: var(--color-text-tertiary);
+  opacity: 1;
+}

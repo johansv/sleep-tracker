@@ -1,5 +1,8 @@
 import {
   addDays,
+  combine,
+  minuteOfDay,
+  type ClockTime,
   civilMinutesBetween,
   datePart,
   isLocalDate,
@@ -116,4 +119,43 @@ export function nightForBedtime(bedtime: LocalDateTime): LocalDate {
 /** Night a wake-up belongs to is always the wake-up date. */
 export function nightForWake(wakeTime: LocalDateTime): LocalDate {
   return datePart(wakeTime);
+}
+
+/**
+ * Bedtime date for an ordinary night, as a day offset from the night date: 0 = after midnight on
+ * the night date, -1 = the evening before. With a wake-up clock, bedtime is the latest occurrence of
+ * its clock before wake-up (23:30 → 07:00 is the evening before; 01:30 → 07:00 is the same day).
+ * Without one, clock times from noon onwards are taken as the evening before.
+ * Equal bedtime and wake-up clocks are ambiguous (no time in bed, or a full day) and give null:
+ * the date has to be chosen explicitly.
+ */
+export function inferBedtimeOffset(bedClock: ClockTime, wakeClock: ClockTime | null): -1 | 0 | null {
+  if (wakeClock === null) return minuteOfDay(bedClock) >= 12 * 60 ? -1 : 0;
+  const bed = minuteOfDay(bedClock);
+  const wake = minuteOfDay(wakeClock);
+  if (bed === wake) return null;
+  return bed < wake ? 0 : -1;
+}
+
+/** Complete local bedtime for an ordinary night ending `nightDate`, or null when ambiguous. */
+export function resolveBedtime(
+  nightDate: LocalDate,
+  bedClock: ClockTime,
+  wakeClock: ClockTime | null,
+): LocalDateTime | null {
+  const offset = inferBedtimeOffset(bedClock, wakeClock);
+  return offset === null ? null : combine(addDays(nightDate, offset), bedClock);
+}
+
+export type OpenNightState = 'upcoming' | 'in_progress' | 'stale';
+
+/**
+ * How a bedtime-only night relates to `now`: a bedtime still ahead is upcoming; one that started
+ * no longer ago than a plausibly long night is in progress; anything older is a stale record that
+ * needs completing rather than an active session.
+ */
+export function openNightState(bedtime: LocalDateTime, now: LocalDateTime): OpenNightState {
+  const elapsed = civilMinutesBetween(bedtime, now);
+  if (elapsed < 0) return 'upcoming';
+  return elapsed <= LONG_NIGHT_MINUTES ? 'in_progress' : 'stale';
 }

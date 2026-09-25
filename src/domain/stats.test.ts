@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionEndpoints } from './session';
-import { computePeriodStats } from './stats';
+import { computePeriodStats, nightAxis } from './stats';
 
 const night = (nightDate: string, bed: string | null, wake: string | null): SessionEndpoints => ({
   nightDate,
@@ -52,6 +52,25 @@ describe('computePeriodStats', () => {
     ]);
     expect(stats.series[0]).toMatchObject({ minutes: 480, bedtimeOffset: 660, wakeOffset: 1140 });
     expect(stats.series[3]).toMatchObject({ minutes: null, bedtimeOffset: null });
+  });
+
+  it('draws a night that ends before midnight on its night date as an evening interval', () => {
+    // Night ending 23 Sep, 19:30 → 23:25 the same day: 19:30 = 450, 23:25 = 685 on the clock axis.
+    const evening = night('2026-09-23', '2026-09-23T19:30', '2026-09-23T23:25');
+    expect(nightAxis(evening)).toEqual({ bedtimeOffset: 450, wakeOffset: 685 });
+    const [point] = computePeriodStats([evening], { from: '2026-09-23', to: '2026-09-23' }).series;
+    expect(point).toMatchObject({ status: 'complete', minutes: 235, bedtimeOffset: 450, wakeOffset: 685 });
+    // Ordinary and after-midnight nights keep their positions; long nights keep their full length.
+    expect(nightAxis(night('2026-09-22', '2026-09-22T00:30', '2026-09-22T07:30'))).toEqual({
+      bedtimeOffset: 750,
+      wakeOffset: 1170,
+    });
+    expect(nightAxis(night('2026-09-25', '2026-09-23T21:00', '2026-09-25T07:00'))).toEqual({
+      bedtimeOffset: 540,
+      wakeOffset: 540 + 34 * 60,
+    });
+    // Single endpoints are placed by their clock.
+    expect(nightAxis(night('2026-09-23', null, '2026-09-23T23:25'))).toEqual({ bedtimeOffset: null, wakeOffset: 685 });
   });
 
   it('groups by weekday of the night date with per-group coverage', () => {

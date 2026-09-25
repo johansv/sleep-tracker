@@ -1,22 +1,26 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import { ArrowRight, BedDouble, ChevronRight, Info, Moon, Pencil, Sun, TriangleAlert } from 'lucide-react';
+import { useMemo } from 'react';
+import { ArrowRight, BedDouble, ChevronRight, Moon, Pencil, Sun, TriangleAlert } from 'lucide-react';
 import { api } from '../../api/client';
 import { invalidateAll, useQuery } from '../../api/query';
 import { NightBar } from '../../components/NightBar';
-import { ProfileChips } from '../../components/ProfileChips';
+import type { EditorSuggestion } from '../../components/SessionEditor';
 import { formatClock, formatDuration, formatShortDate } from '../../components/format';
 import { addDays, civilMinutesBetween, datePart, type LocalDate, type LocalDateTime } from '../../domain/civil';
 import { periodRange } from '../../domain/period';
-import { EVENING_STARTS_AT_HOUR, nightForBedtime, sessionStatus, timeInBedMinutes } from '../../domain/session';
-import { axisOffset, computePeriodStats } from '../../domain/stats';
+import {
+  EVENING_STARTS_AT_HOUR,
+  nightForBedtime,
+  openNightState,
+  sessionStatus,
+  timeInBedMinutes,
+} from '../../domain/session';
+import { computePeriodStats, nightAxis } from '../../domain/stats';
 import { Button } from '../../design/Button';
 import { LoadingBlock, Skeleton } from '../../design/Skeleton';
 import { Surface, SectionHeader } from '../../design/Surface';
 import { useToast } from '../../design/Toast';
-import type { Profile, SessionBody, SleepSession } from '../../shared/api';
+import type { Profile, SleepSession } from '../../shared/api';
 import { useNightEditor } from '../NightEditor';
-import { useProfiles } from '../ProfileContext';
-import { writeNight } from '../quickLog';
 import { Link } from '../router';
 import { useNow } from '../useNow';
 import { ErrorState, WithSelectedProfile } from './common';
@@ -72,7 +76,7 @@ function TodayContent({
 }) {
   const today = datePart(now);
   const hour = Number(now.slice(11, 13));
-  const evening = hour >= 15;
+  const evening = hour >= EVENING_STARTS_AT_HOUR;
   const heroNight = evening ? addDays(today, 1) : today;
   const byNight = useMemo(() => new Map(sessions.map((s) => [s.nightDate, s])), [sessions]);
   const lastNight = evening ? byNight.get(today) : undefined;
@@ -86,12 +90,18 @@ function TodayContent({
   return (
     <div className={styles.layout}>
       <div className={styles.primary}>
-        <QuickLog viewing={profile} viewingSessions={sessions} viewingRefreshing={refreshing} now={now} />
+        {profile.isActive ? (
+          <Hero profile={profile} sessions={sessions} now={now} settling={refreshing} />
+        ) : (
+          <InactiveCard profile={profile} />
+        )}
         {evening && (
           <LastNightCard
             night={today}
             session={lastNight}
-            onOpen={() => openEditor(lastNight ? { profile, session: lastNight } : { profile, nightDate: today })}
+            onOpen={() =>
+              openEditor(lastNight ? { profile, session: lastNight } : { profile, nightDate: today, kind: 'past' })
+            }
           />
         )}
       </div>
@@ -155,192 +165,56 @@ function TodayContent({
 }
 
 /**
- * Quick logging for the viewed person by default, or — for a single action — another active
- * person. The logging target is transient: it never changes the viewing selection and resets after
- * a save or when the viewed person changes.
+ * The selected profile's current night. "Going to bed" and "I'm up" open the night editor with the
+ * current time suggested; nothing is written until the user saves there.
  */
-function QuickLog({
-  viewing,
-  viewingSessions,
-  viewingRefreshing,
-  now,
-}: {
-  viewing: Profile;
-  viewingSessions: SleepSession[];
-  viewingRefreshing: boolean;
-  now: LocalDateTime;
-}) {
-  const { profiles } = useProfiles();
-  const [targetId, setTargetId] = useState<string | null>(null);
-  const reset = () => setTargetId(null);
-  const quick = useQuickLog(reset);
-
-  const today = datePart(now);
-  const target =
-    (targetId ? profiles.find((p) => p.id === targetId && p.isActive) : undefined) ??
-    (viewing.isActive ? viewing : undefined);
-  const other = target !== undefined && target.id !== viewing.id;
-  const from = addDays(today, -1);
-  const to = addDays(today, 1);
-  const targetQuery = useQuery(other ? `sessions:${target.id}:${from}:${to}` : null, () =>
-    api.listSessions(target!.id, { from, to }).then((r) => r.sessions),
-  );
-
-  const picker = (
-    <ProfileChips
-      label={target ? 'Log for' : 'Log for someone else'}
-      size="sm"
-      activeOnly
-      profiles={profiles}
-      selectedId={target?.id ?? null}
-      disabled={quick.busy}
-      onSelect={(id) => setTargetId(id === viewing.id ? null : id)}
-    />
-  );
-
-  if (!target) return <InactiveCard profile={viewing} picker={picker} />;
-
-  const header = (
-    <div className={styles.heroTarget}>
-      {picker}
-      {other && (
-        <p className={styles.targetNote} role="status">
-          <Info aria-hidden="true" />
-          <span>
-            Logging for <strong>{target.name}</strong> · you’re viewing {viewing.name}
-          </span>
-          <button type="button" className={styles.targetReset} onClick={reset}>
-            Back to {viewing.name}
-          </button>
-        </p>
-      )}
-    </div>
-  );
-
-  // One stable card: the picker keeps its place (and keyboard focus) while the body switches
-  // between the chosen person's loading, error and night states.
-  const sessions = other ? targetQuery.data : viewingSessions;
-  const settling = other ? targetQuery.status === 'success' && targetQuery.refreshing : viewingRefreshing;
-  let body: ReactNode;
-  if (other && targetQuery.status === 'error') {
-    body = <ErrorState compact error={targetQuery.error} onRetry={targetQuery.retry} />;
-  } else if (!sessions) {
-    body = (
-      <LoadingBlock label={`Loading ${target.name}’s nights`}>
-        <Skeleton height={180} radius="var(--radius-lg)" />
-      </LoadingBlock>
-    );
-  } else {
-    body = <HeroContent profile={target} sessions={sessions} now={now} quick={quick} settling={settling} />;
-  }
-  return (
-    <Surface tone="accent" padding="lg" className={styles.hero} aria-labelledby="hero-night">
-      {header}
-      {body}
-    </Surface>
-  );
-}
-
-function useQuickLog(onDone: () => void) {
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
-
-  const record = async (target: Profile, nightDate: LocalDate, patch: Partial<SessionBody>, what: string) => {
-    setBusy(true);
-    try {
-      const { saved, previous } = await writeNight(api, target, nightDate, patch);
-      invalidateAll();
-      onDone();
-      toast({
-        tone: 'success',
-        message: `${target.name}: ${what} saved`,
-        action: {
-          label: 'Undo',
-          onAction: () => {
-            const revert = previous
-              ? api.updateSession(saved.id, {
-                  nightDate: previous.nightDate,
-                  bedtime: previous.bedtime,
-                  wakeTime: previous.wakeTime,
-                })
-              : api.deleteSession(saved.id);
-            revert.then(
-              () => {
-                invalidateAll();
-                toast({ message: `${target.name}: ${what} undone` });
-              },
-              (error: unknown) =>
-                toast({ tone: 'error', message: error instanceof Error ? error.message : 'Could not undo.' }),
-            );
-          },
-        },
-      });
-    } catch (error) {
-      toast({ tone: 'error', message: error instanceof Error ? error.message : 'Could not save.' });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return {
-    busy,
-    bedtimeNow: (target: Profile, now: LocalDateTime) =>
-      record(target, nightForBedtime(now), { bedtime: now }, `bedtime ${formatClock(now)}`),
-    wakeNow: (target: Profile, now: LocalDateTime) =>
-      record(target, datePart(now), { wakeTime: now }, `wake-up ${formatClock(now)}`),
-  };
-}
-
-function HeroContent({
+function Hero({
   profile,
   sessions,
   now,
-  quick,
   settling,
 }: {
   profile: Profile;
   sessions: SleepSession[];
   now: LocalDateTime;
-  quick: ReturnType<typeof useQuickLog>;
-  /** The shown person's data is being refreshed; hold actions until it is current. */
+  /** The data is being refreshed; hold actions until it is current. */
   settling: boolean;
 }) {
   const { openEditor } = useNightEditor();
   const hour = Number(now.slice(11, 13));
   const today = datePart(now);
-  const night = hour >= EVENING_STARTS_AT_HOUR ? addDays(today, 1) : today;
+  const night = nightForBedtime(now);
   const session = sessions.find((s) => s.nightDate === night);
   const nightIsToday = night === today;
-  const edit = () => openEditor(session ? { profile, session } : { profile, nightDate: night });
+  const open = (suggest?: EditorSuggestion) =>
+    openEditor(session ? { profile, session, suggest } : { profile, nightDate: night, kind: 'current', suggest });
 
-  const bedButton = (primary: boolean) => (
+  const bedButton = (
     <Button
-      variant={primary ? 'primary' : 'secondary'}
-      size={primary ? 'lg' : 'md'}
-      block={primary}
+      variant="primary"
+      size="lg"
+      block
       icon={<Moon />}
-      busy={quick.busy}
       disabled={settling}
-      onClick={() => quick.bedtimeNow(profile, now)}
+      onClick={() => open({ bedtime: now })}
     >
       Going to bed
     </Button>
   );
-  const wakeButton = (primary: boolean) => (
+  const wakeButton = (
     <Button
-      variant={primary ? 'primary' : 'secondary'}
-      size={primary ? 'lg' : 'md'}
-      block={primary}
+      variant="primary"
+      size="lg"
+      block
       icon={<Sun />}
-      busy={quick.busy}
       disabled={settling}
-      onClick={() => quick.wakeNow(profile, now)}
+      onClick={() => open({ wakeTime: now })}
     >
       I'm up
     </Button>
   );
   const editButton = (label = 'Edit times') => (
-    <Button variant="ghost" icon={<Pencil />} onClick={edit}>
+    <Button variant="ghost" icon={<Pencil />} disabled={settling} onClick={() => open()}>
       {label}
     </Button>
   );
@@ -348,7 +222,7 @@ function HeroContent({
   let content;
   if (!session) {
     const lateNight = hour < 5;
-    const morning = !lateNight && hour < 15;
+    const morning = !lateNight && hour < EVENING_STARTS_AT_HOUR;
     content = (
       <>
         <HeroIcon kind={morning ? 'sun' : 'moon'} />
@@ -357,38 +231,47 @@ function HeroContent({
         </h2>
         <p className={styles.heroText}>
           {morning
-            ? 'Log when you got up — you can add last night’s bedtime too.'
-            : 'One tap records the time. You can adjust it afterwards.'}
+            ? 'Log when you got up together with last night’s bedtime.'
+            : 'Starts from the current time — adjust it before saving.'}
         </p>
         <div className={styles.heroActions}>
-          {morning ? wakeButton(true) : bedButton(true)}
-          <div className={styles.heroSecondary}>
-            {morning ? bedButton(false) : null}
-            {editButton('Enter times')}
-          </div>
+          {morning ? wakeButton : bedButton}
+          <div className={styles.heroSecondary}>{editButton('Enter times')}</div>
+        </div>
+      </>
+    );
+  } else if (session.bedtime && !session.wakeTime && openNightState(session.bedtime, now) === 'stale') {
+    content = (
+      <>
+        <HeroIcon kind="moon" />
+        <p className={styles.heroEyebrow}>Wake-up missing</p>
+        <p className={styles.heroValue}>
+          <span className="num">{formatClock(session.bedtime)}</span>
+        </p>
+        <p className={styles.heroText}>Bedtime is recorded. Add when you got up to complete this night.</p>
+        <div className={styles.heroActions}>
+          <Button variant="primary" size="lg" block icon={<Sun />} disabled={settling} onClick={() => open()}>
+            Add wake-up
+          </Button>
         </div>
       </>
     );
   } else if (session.bedtime && !session.wakeTime) {
-    const elapsed = civilMinutesBetween(session.bedtime, now);
+    const upcoming = openNightState(session.bedtime, now) === 'upcoming';
     content = (
       <>
         <HeroIcon kind="moon" />
-        <p className={styles.heroEyebrow}>In bed since</p>
+        <p className={styles.heroEyebrow}>{upcoming ? 'Going to bed at' : 'In bed since'}</p>
         <p className={styles.heroValue}>
           <span className="num">{formatClock(session.bedtime)}</span>
         </p>
-        {elapsed > 0 && elapsed < 20 * 60 && (
+        {!upcoming && (
           <p className={styles.heroText}>
-            <span className="num">{formatDuration(elapsed)}</span> so far
+            <span className="num">{formatDuration(civilMinutesBetween(session.bedtime, now))}</span> in bed so far
           </p>
         )}
         <div className={styles.heroActions}>
-          {nightIsToday ? (
-            wakeButton(true)
-          ) : (
-            <p className={styles.heroText}>Sleep well. Tap “I'm up” in the morning.</p>
-          )}
+          {nightIsToday ? wakeButton : <p className={styles.heroText}>Sleep well. Tap “I'm up” in the morning.</p>}
           <div className={styles.heroSecondary}>{editButton()}</div>
         </div>
       </>
@@ -403,7 +286,7 @@ function HeroContent({
         </p>
         <p className={styles.heroText}>Add your bedtime to complete this night.</p>
         <div className={styles.heroActions}>
-          <Button variant="primary" size="lg" block icon={<Moon />} onClick={edit}>
+          <Button variant="primary" size="lg" block icon={<Moon />} disabled={settling} onClick={() => open()}>
             Add bedtime
           </Button>
         </div>
@@ -424,11 +307,7 @@ function HeroContent({
           </span>
         </p>
         <div className={styles.heroBar}>
-          <NightBar
-            status="complete"
-            bedtimeOffset={axisOffset(session.nightDate, session.bedtime!)}
-            wakeOffset={axisOffset(session.nightDate, session.wakeTime!)}
-          />
+          <NightBar status="complete" {...nightAxis(session)} />
           <div className={styles.heroBarLabels} aria-hidden="true">
             <span>18:00</span>
             <span>00:00</span>
@@ -443,12 +322,12 @@ function HeroContent({
   }
 
   return (
-    <>
+    <Surface tone="accent" padding="lg" className={styles.hero} aria-labelledby="hero-night">
       <p id="hero-night" className={styles.heroNight}>
         {profile.name} · night ending {formatShortDate(night)}
       </p>
       {content}
-    </>
+    </Surface>
   );
 }
 
@@ -461,13 +340,12 @@ function HeroIcon({ kind }: { kind: 'moon' | 'sun' | 'bed' }) {
   );
 }
 
-function InactiveCard({ profile, picker }: { profile: Profile; picker: ReactNode }) {
+function InactiveCard({ profile }: { profile: Profile }) {
   const toast = useToast();
   return (
     <Surface padding="lg" className={styles.hero}>
       <h2 className={styles.heroTitle}>{profile.name} is inactive</h2>
       <p className={styles.heroText}>History stays available. Reactivate to log new nights.</p>
-      <div className={styles.heroTarget}>{picker}</div>
       <div className={styles.heroActions}>
         <Button
           variant="primary"
