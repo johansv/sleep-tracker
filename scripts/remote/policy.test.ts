@@ -21,6 +21,7 @@ import {
   PLACEHOLDER_DATABASE_ID,
   REQUIRED_CI_JOBS,
   smokeProblems,
+  pullRequestHeadProblem,
   sourceLabel,
   withDatabaseId,
 } from './policy';
@@ -152,6 +153,30 @@ describe('release validation evidence', () => {
   it('names jobs that exist in the CI workflow', () => {
     const workflow = readFileSync(CI_WORKFLOW_PATH, 'utf8');
     for (const name of REQUIRED_CI_JOBS) expect(workflow).toContain(`name: ${name}\n`);
+  });
+});
+
+describe('pull request trust boundary', () => {
+  const head = (repo: string | null) => ({ sha: 'a'.repeat(40), repo: repo ? { full_name: repo } : null });
+
+  it('deploys only open PRs whose head branch is in this repository', () => {
+    expect(
+      pullRequestHeadProblem(7, { state: 'open', head: head('johansv/sleep-tracker') }, 'johansv/sleep-tracker'),
+    ).toBeNull();
+    expect(
+      pullRequestHeadProblem(7, { state: 'open', head: head('JohanSv/Sleep-Tracker') }, 'johansv/sleep-tracker'),
+    ).toBeNull();
+  });
+
+  it('refuses fork, deleted-fork, closed and unresolvable PRs', () => {
+    expect(
+      pullRequestHeadProblem(7, { state: 'open', head: head('mallory/sleep-tracker') }, 'johansv/sleep-tracker'),
+    ).toMatch(/only same-repository branches/);
+    expect(pullRequestHeadProblem(7, { state: 'open', head: head(null) }, 'johansv/sleep-tracker')).toMatch(/deleted/);
+    expect(
+      pullRequestHeadProblem(7, { state: 'closed', head: head('johansv/sleep-tracker') }, 'johansv/sleep-tracker'),
+    ).toMatch(/closed/);
+    expect(pullRequestHeadProblem(7, {}, 'johansv/sleep-tracker')).toMatch(/cannot be resolved/);
   });
 });
 

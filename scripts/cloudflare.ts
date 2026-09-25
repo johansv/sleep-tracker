@@ -23,6 +23,7 @@ import {
   parseRevisionSource,
   PLACEHOLDER_DATABASE_ID,
   publicUrl,
+  pullRequestHeadProblem,
   RELEASE_BRANCH,
   smokeProblems,
   sourceLabel,
@@ -30,6 +31,7 @@ import {
   type CiJob,
   type EnvironmentName,
   type Operation,
+  type PullRequestHead,
 } from './remote/policy';
 
 /**
@@ -201,6 +203,11 @@ async function requireValidationEvidence(sha: string): Promise<string> {
   if (evidence) {
     log(`Validation evidence for ${sha}: ${evidence}`);
     return evidence;
+  }
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    // Validation executes the revision's own code; in CI it must run in an earlier step that has no
+    // Cloudflare credentials (see cloudflare-deploy.yml), which then passes --verified.
+    throw new DeployError(`No complete green CI run for ${sha}. Run \`pnpm verify\` in a credential-free step first.`);
   }
   log(`No complete green CI run found for ${sha}; running \`pnpm verify\` on it before deploying.`);
   // Tests never see deployment credentials; they only use local, disposable D1 state.
@@ -447,7 +454,7 @@ function repoLatestMigration(): string | null {
 async function deployRevision(
   env: EnvironmentName,
   operation: 'release' | 'deploy-only',
-  options: { source?: string; expectRevision?: string },
+  options: { source?: string; expectRevision?: string; verified?: boolean },
 ): Promise<void> {
   assertOperationAllowed(operation, env);
   const sha = currentRevision(options.expectRevision);
@@ -463,7 +470,9 @@ async function deployRevision(
   try {
     // A failed validation or migration stops here, before any code is deployed.
     if (operation === 'release') {
-      evidence = await requireValidationEvidence(sha);
+      evidence = options.verified
+        ? 'pnpm verify (earlier credential-free step of this job)'
+        : await requireValidationEvidence(sha);
       migrate(env);
     } else log('deploy-only: migrations are NOT applied.');
     versionId = deploy(env, build(env), sha, source, operation);
@@ -537,10 +546,13 @@ async function resolve(kind: string | undefined, ref: string | undefined): Promi
   const source = parseRevisionSource(kind, ref);
   let sha: string | undefined;
   if (source.kind === 'pr') {
-    const pr = await github<{ state?: string; head?: { sha: string } }>(`/pulls/${source.number}`);
-    if (pr.status !== 200 || !pr.body.head) throw new DeployError(`Pull request #${source.number} cannot be resolved.`);
-    if (pr.body.state !== 'open')
-      throw new DeployError(`Pull request #${source.number} is ${pr.body.state}, not open.`);
+    const pr = await github<PullRequestHead>(`/pulls/${source.number}`);
+    const problem =
+      pr.status === 200
+        ? pullRequestHeadProblem(source.number, pr.body, githubRepository() ?? '')
+        : `Pull request #${source.number} cannot be resolved.`;
+    if (problem || !pr.body.head)
+      throw new DeployError(problem ?? `Pull request #${source.number} cannot be resolved.`);
     sha = pr.body.head.sha;
   } else {
     const branch = await github<{ commit?: { sha: string } }>(`/branches/${encodeURIComponent(source.name)}`);
@@ -583,6 +595,8 @@ async function main(argv: string[]): Promise<number> {
       seed: { type: 'boolean', default: false },
       write: { type: 'boolean', default: false },
       anchor: { type: 'string' },
+      // CI only: `pnpm verify` already passed for this checkout in an earlier, credential-free step.
+      verified: { type: 'boolean', default: false },
     },
   });
   const [command, arg1, arg2] = positionals;
@@ -650,7 +664,11 @@ Commands:
       return 0;
     case 'deploy-only':
     case 'release':
-      await deployRevision(env, operation, { source: values.source, expectRevision: values['expect-revision'] });
+      await deployRevision(env, operation, {
+        source: values.source,
+        expectRevision: values['expect-revision'],
+        verified: values.verified,
+      });
       return 0;
     case 'smoke':
       await smoke(env, values.revision ?? git(['rev-parse', 'HEAD']), false);

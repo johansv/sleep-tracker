@@ -170,6 +170,26 @@ export function sourceLabel(source: RevisionSource): string {
   return source.kind === 'pr' ? `pr:${source.number}` : `branch:${source.name}`;
 }
 
+export interface PullRequestHead {
+  state?: string;
+  head?: { sha: string; repo: { full_name: string } | null };
+}
+
+/**
+ * Deploying runs the selected revision's own install/build/deploy tooling with Cloudflare
+ * credentials, so only open PRs whose head branch lives in this repository (written only by
+ * people with push access) are deployable. Fork PRs are refused.
+ */
+export function pullRequestHeadProblem(number: number, pr: PullRequestHead, repository: string): string | null {
+  if (!pr.head) return `Pull request #${number} cannot be resolved.`;
+  if (pr.state !== 'open') return `Pull request #${number} is ${pr.state ?? 'not open'}, not open.`;
+  const headRepository = pr.head.repo?.full_name;
+  if (headRepository?.toLowerCase() !== repository.toLowerCase()) {
+    return `Pull request #${number} comes from ${headRepository ?? 'a deleted repository'}, not ${repository}; only same-repository branches can be deployed.`;
+  }
+  return null;
+}
+
 /** Replace one environment's database_id in wrangler.jsonc text, keeping comments/formatting. */
 export function withDatabaseId(configText: string, env: EnvironmentName, databaseId: string): string {
   const pattern = new RegExp(

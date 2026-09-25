@@ -40,11 +40,8 @@ jobs:
     concurrency:
       group: cloudflare-${{ inputs.environment }}
       cancel-in-progress: false
+    # Credentials are scoped to the operation step only, never to checkout/install.
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
       TARGET_ENV: ${{ inputs.environment }}
       OPERATION: ${{ inputs.operation }}
       CONFIRM: ${{ inputs.confirm }}
@@ -64,6 +61,11 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: ${{ inputs.operation }} ${{ inputs.environment }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           case "$OPERATION" in
             seed) pnpm cf seed "$TARGET_ENV" --anchor "$SEED_ANCHOR" ;;

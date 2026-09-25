@@ -92,11 +92,13 @@ Remote dev/staging builds show a deliberately subtle environment marker. It is f
 
 Manually triggered workflows provide the whole remote lifecycle without a developer workstation:
 
-- **Deploy revision (dev/staging)** (`deploy-revision.yml`) — choose `dev` or `staging`, a PR number (its current head) or a branch (its tip at workflow start), and `release` (default) or `deploy-only`, optionally seeding afterwards. The SHA is resolved once and used throughout. The job summary — and for PRs a single upserted PR comment — shows source, SHA, environment, URL and Worker version. It cannot target production.
+- **Deploy revision (dev/staging)** (`deploy-revision.yml`) — choose `dev` or `staging`, a same-repository PR number (its current head; fork PRs are refused) or a branch (its tip at workflow start), and `release` (default) or `deploy-only`, optionally seeding afterwards. The SHA is resolved once and used throughout. The job summary — and for PRs a single upserted PR comment — shows source, SHA, environment, URL and Worker version. It cannot target production.
 - **Release production** (`release-production.yml`) — run from `main`; releases the main tip or a given commit on main. No seed/reset.
 - **Environment operations** (`environment-operations.yml`) — `status`, `provision`, `migrate`, `seed`, `reset`, `reset-and-seed` for a chosen environment; migrations/seed come from the branch the workflow runs from, production only from `main`; seed/reset refused for production. Reset requires typing the environment name.
 
 Deploy jobs run in the reusable `cloudflare-deploy.yml`. Every mutating job uses the GitHub Environment of its target (`dev`, `staging`, `production`) for `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID` secrets and protection rules, and the shared concurrency group `cloudflare-<env>` so releases, migrations and resets never race on one environment. Protect `production` with required reviewers and a `main`-only deployment branch policy. Production deployment is never automatic.
+
+Credential trust boundary: a deployment executes the selected revision's own install, build and deploy tooling, so only revisions from this repository are deployable — `pnpm cf resolve` refuses fork PRs (the PR head repository must be this repository). Cloudflare/Access secrets are scoped to the individual steps that talk to Cloudflare, never job-wide: checkout, `pnpm install` and a fallback `pnpm verify` run without them, and `release --verified` then records that validation instead of re-running it. Deploying arbitrary external PRs would need a trusted control plane that never runs PR-owned tooling with credentials; that is out of scope.
 
 ### Bootstrap versus routine operation
 

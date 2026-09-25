@@ -53,12 +53,10 @@ jobs:
       contents: read
       actions: read # CI evidence lookup for the revision
       pull-requests: write # deployment comment on the source PR
+    # Trust boundary: checkout, install and validation run the selected revision's own code, so the
+    # Cloudflare/Access secrets are given only to the steps that talk to Cloudflare (never job-wide).
+    # Callers only pass revisions from this repository (fork PRs are refused by `pnpm cf resolve`).
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-      GITHUB_TOKEN: ${{ github.token }}
       TARGET_ENV: ${{ inputs.environment }}
       SHA: ${{ inputs.sha }}
       SOURCE: ${{ inputs.source }}
@@ -76,6 +74,9 @@ jobs:
         with:
           ref: ${{ inputs.sha }}
           fetch-depth: 0 # production checks that the revision is on main
+          # Don't leave the job token in .git/config for PR-owned install scripts; only production
+          # (main-only code) needs it later, to fetch main for its on-main check.
+          persist-credentials: ${{ inputs.environment == 'production' }}
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -83,22 +84,41 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
-      # A release reuses a complete green CI run for this exact SHA; without one, `pnpm cf release`
-      # runs `pnpm verify` itself, which needs a browser.
+      # A release reuses a complete green CI run for this exact SHA. Without one, the revision is
+      # verified here, in steps that hold no Cloudflare credentials, before anything is deployed.
       - name: Look up CI evidence
         id: evidence
         if: inputs.operation == 'release'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: pnpm cf evidence "$SHA"
       - name: Install browser for validation
         if: inputs.operation == 'release' && steps.evidence.outputs.found != 'true'
         run: pnpm exec playwright install --with-deps chromium
+      - name: Verify revision (no credentials)
+        id: verify
+        if: inputs.operation == 'release' && steps.evidence.outputs.found != 'true'
+        run: pnpm verify
 
       - name: ${{ inputs.operation }}
         id: deploy
-        run: pnpm cf "$OPERATION" "$TARGET_ENV" --source "$SOURCE" --expect-revision "$SHA"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          GITHUB_TOKEN: ${{ github.token }}
+          VERIFIED: ${{ steps.verify.outcome == 'success' }}
+        run: |
+          args=(--source "$SOURCE" --expect-revision "$SHA")
+          if [ "$VERIFIED" = true ]; then args+=(--verified); fi
+          pnpm cf "$OPERATION" "$TARGET_ENV" "${args[@]}"
 
       - name: Seed demo data
         if: inputs.seed
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: pnpm cf seed "$TARGET_ENV" --anchor "$SEED_ANCHOR"
 
       - name: Comment on pull request
@@ -134,7 +154,7 @@ jobs:
             else await github.rest.issues.createComment({ ...context.repo, issue_number, body });
 
       - name: Upload validation artifacts
-        if: failure() && steps.evidence.outputs.found == 'false'
+        if: failure() && steps.verify.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report

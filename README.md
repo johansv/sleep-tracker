@@ -112,7 +112,7 @@ pnpm cf help                            # compact command reference
 
 ### From GitHub Actions (Actions → Run workflow)
 
-- **Deploy revision (dev/staging)** — a PR number (its current head) or branch (its tip), `release` or `deploy-only`, optionally seeding afterwards. The run summary and a single PR comment show the deployed SHA, URL and Worker version.
+- **Deploy revision (dev/staging)** — a PR number (its current head; PRs from forks are refused) or branch (its tip), `release` or `deploy-only`, optionally seeding afterwards. The run summary and a single PR comment show the deployed SHA, URL and Worker version.
 - **Environment operations** — `doctor`, `status`, `provision`, `migrate`, `seed`, `reset`, `reset-and-seed` (reset asks you to type the environment name; seed anchor is explicit and deterministic).
 - **Release production** — from `main`: releases the main tip or a given commit on main.
 
