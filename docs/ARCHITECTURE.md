@@ -300,27 +300,25 @@ Green unit/CI output is not proof of responsive interaction quality. Browser evi
 
 ## CI
 
-GitHub Actions CI runs for PRs to dev/main and relevant pushes, reusing repository commands rather than CI-only rules. Every push gets the fast gate (`pnpm check`) without browser infrastructure. Integration and browser E2E run as a dependent job only after it passes, and only for review candidates (non-draft PRs, including when a draft is marked ready for review) and pushes to dev/main; draft PR pushes stop at the fast gate.
+GitHub Actions CI runs for PRs targeting `main` and pushes to `main`, reusing repository commands rather than CI-only rules. Every such run gets the fast gate (`pnpm check`) without browser infrastructure. Integration and browser E2E run as a dependent job only after it passes, and only for review candidates (non-draft PRs, including when a draft is marked ready for review) and pushes to `main`; draft PR updates stop at the fast gate.
 
 CI must be able to validate V1 without Cloudflare secrets or remote resources and must use isolated disposable local D1 state for persistence-dependent tests. Deployment is separate from ordinary CI: remote workflows are manual (see Remote environments) and reuse green CI runs as release evidence.
 
 ## Git and delivery model
 
-- main is the release branch.
-- dev is the integration branch.
-- ordinary feature/fix branches start from current dev and target dev.
-- releases are explicit dev → main integrations.
-- dev/staging environments take any PR head or branch tip on demand; production only takes revisions on main.
-
-After this baseline, dev should point at the same commit as main before implementation begins.
+- `main` is the default integration and release branch.
+- ordinary feature/fix branches start from current `main` and target `main`.
+- short-lived branches are deleted after merge; no long-lived integration branch is required.
+- dev/staging environments take any same-repository PR head or branch tip on demand; production only takes revisions on `main`.
+- merge to `main`, deployment to an environment, and production release are separate consequential actions.
 
 For non-trivial implementation work the normal lifecycle is:
 
-Issue → branch from dev → coherent implementation/validation → push → linked PR to dev → CI/review → revisions on same PR → re-review current head → merge when ready.
+Issue → branch from main → coherent implementation/validation → push → linked PR to main → CI/review → revisions on same PR → re-review current head → squash merge when ready.
 
-Prefer squash merge for ordinary feature/fix PRs into dev. For release, preserve an explicit dev → main integration boundary; afterwards advance dev to include the resulting main release commit so subsequent work shares the release baseline.
+The `dev` name refers to a Cloudflare deployment environment, not a Git integration branch. A legacy Git branch named `dev` may exist during transition, but it is not a workflow authority and ordinary work must not branch from or target it.
 
-Feature/fix work must not target main directly except explicitly authorized exceptional/bootstrap administration. Merge, release and deployment are separate consequential actions and are not implied by implementation completion.
+Merge, release and deployment are separate consequential actions and are not implied by implementation completion.
 
 ## Security posture
 

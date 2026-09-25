@@ -43,11 +43,11 @@ docs/ARCHITECTURE.md is authoritative if the implemented map intentionally evolv
 
 ## Git workflow
 
-main is release-only; dev is integration. Ordinary implementation branches start from current dev and PR back to dev. Releases integrate dev to main separately.
+main is the default integration and release branch. Ordinary implementation branches start from current main and PR back to main. Merge to main and deployment are separate actions; production is never deployed automatically.
 
 For non-trivial Issue-backed work:
 
-Issue → branch from dev → implement/test → push → linked PR to dev → review → revise → re-review current head → merge.
+Issue → branch from main → implement/test → push → linked PR to main → review → revise → re-review current head → merge.
 
 Do not merge, release or deploy unless that consequential action is explicitly delegated. Keep task-specific detail in Issue/PR rather than copying generic rules into every task.
 

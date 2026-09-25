@@ -43,7 +43,7 @@ pnpm dev        # SPA + Worker API + local D1 at http://localhost:5173
 | `pnpm test:e2e`         | Self-contained Playwright journeys with their own isolated D1 state and server (see below).    |
 | `pnpm verify`           | Full review-candidate verification: `check` + `test:integration` + `test:e2e`.                 |
 
-Validate progressively: while implementing, run the narrowest relevant command with a file, spec or project filter (`pnpm test src/domain/stats.test.ts`, `pnpm test:e2e tests/e2e/logging.spec.ts --project=desktop`), use `pnpm check` as the fast gate, and run `pnpm verify` once for a review candidate. CI runs the fast gate on every push; integration and browser E2E follow only for non-draft PRs and pushes to `dev`/`main`, so keep a PR in draft while iterating.
+Validate progressively: while implementing, run the narrowest relevant command with a file, spec or project filter (`pnpm test src/domain/stats.test.ts`, `pnpm test:e2e tests/e2e/logging.spec.ts --project=desktop`), use `pnpm check` as the fast gate, and run `pnpm verify` once for a review candidate. CI runs the fast gate on pushes to `main` and PRs targeting `main`; integration and browser E2E follow for non-draft PRs and pushes to `main`, so keep a PR in draft while iterating.
 
 ### Demo data
 
@@ -81,7 +81,7 @@ Automated tests never touch the developer database or remote D1:
 
 ## Delivery model
 
-main is the release branch and dev is the integration branch. Non-trivial implementation is normally described by a GitHub Issue, implemented on a branch from dev and reviewed through a PR back to dev. Releases are explicit dev-to-main integrations. CI (`.github/workflows/ci.yml`) runs the fast gate on every push and integration + E2E for review-ready PRs and pushes to dev/main, without any Cloudflare secrets. Deployment is manual and separate from CI; see below.
+`main` is the default integration and release branch. Non-trivial implementation is normally described by a GitHub Issue, implemented on a short-lived branch from current `main`, and reviewed through a PR back to `main`. CI (`.github/workflows/ci.yml`) runs the fast gate for PRs/pushes to `main` and integration + E2E for review-ready PRs and pushes to `main`, without any Cloudflare secrets. Merge and deployment are separate: deployments to dev/staging/production remain explicit and manual; see below.
 
 ## Deploying
 
