@@ -22,11 +22,11 @@ describe('parseClockInput', () => {
   });
 });
 
-function Harness({ initial }: { initial: string }) {
+function Harness({ initial }: { initial: string | null }) {
   const [value, setValue] = useState(initial);
   return (
     <>
-      <TimeField label="Bedtime" value={value} onChange={setValue} />
+      <TimeField label="Bedtime" value={value} onChange={setValue} emptyStart="22:00" />
       <output data-testid="value">{value}</output>
     </>
   );
@@ -54,5 +54,18 @@ describe('TimeField', () => {
     await user.tab();
     expect(screen.getByRole('alert')).toHaveTextContent('24-hour');
     expect(screen.getByTestId('value')).toHaveTextContent('00:40');
+  });
+
+  it('stays visibly empty until a time is entered', async () => {
+    const user = userEvent.setup();
+    render(<Harness initial={null} />);
+    const input = screen.getByRole('textbox', { name: 'Bedtime' });
+    expect(input).toHaveValue('');
+    await user.click(input);
+    await user.tab();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByTestId('value')).toBeEmptyDOMElement();
+    await user.click(screen.getByRole('button', { name: 'Bedtime 5 minutes earlier' }));
+    expect(screen.getByTestId('value')).toHaveTextContent('22:00');
   });
 });

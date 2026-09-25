@@ -30,27 +30,36 @@ export function parseClockInput(text: string): ClockTime | null {
 
 export interface TimeFieldProps {
   label: string;
-  value: ClockTime;
+  /** Null when nothing is entered: the field stays visibly empty rather than showing a guess. */
+  value: ClockTime | null;
   onChange: (value: ClockTime) => void;
   /** Minutes per step for the − / + buttons. */
   step?: number;
+  /** Value the first − / + tap on an empty field starts from. */
+  emptyStart?: ClockTime;
 }
 
 /** 24-hour time entry with large step buttons for quick one-handed adjustment. */
-export function TimeField({ label, value, onChange, step = 5 }: TimeFieldProps) {
+export function TimeField({ label, value, onChange, step = 5, emptyStart = '12:00' }: TimeFieldProps) {
   const id = useId();
-  const [text, setText] = useState(value);
+  const [text, setText] = useState(value ?? '');
   const [invalid, setInvalid] = useState(false);
   const [syncedValue, setSyncedValue] = useState(value);
 
   // Adopt external changes (steppers, parent resets) during render.
   if (syncedValue !== value) {
     setSyncedValue(value);
-    setText(value);
+    setText(value ?? '');
     setInvalid(false);
   }
 
   const commit = () => {
+    if (text.trim() === '') {
+      // Emptying the text is not a value; removing an endpoint is an explicit action elsewhere.
+      setInvalid(false);
+      setText(value ?? '');
+      return;
+    }
     const parsed = parseClockInput(text);
     if (parsed) {
       setInvalid(false);
@@ -62,7 +71,12 @@ export function TimeField({ label, value, onChange, step = 5 }: TimeFieldProps) 
   };
 
   const stepBy = (delta: number) => {
-    const base = minuteOfDay(parseClockInput(text) ?? value);
+    const current = parseClockInput(text) ?? value;
+    if (current === null) {
+      onChange(emptyStart);
+      return;
+    }
+    const base = minuteOfDay(current);
     // Snap to the step grid first so 07:12 → 07:15 / 07:10.
     const snapped = delta > 0 ? Math.floor(base / step) * step + step : Math.ceil(base / step) * step - step;
     onChange(clockFromMinuteOfDay(snapped));
@@ -82,6 +96,7 @@ export function TimeField({ label, value, onChange, step = 5 }: TimeFieldProps) 
         autoComplete="off"
         enterKeyHint="done"
         maxLength={5}
+        placeholder="––:––"
         value={text}
         onChange={(event) => setText(event.target.value)}
         onBlur={commit}

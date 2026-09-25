@@ -1,10 +1,8 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
-import { Info } from 'lucide-react';
 import { api } from '../api/client';
 import { invalidateAll, useQuery } from '../api/query';
 import { ProfileAvatar } from '../components/ProfileAvatar';
-import { ProfileChips } from '../components/ProfileChips';
-import { SessionEditor } from '../components/SessionEditor';
+import { SessionEditor, type EditorSuggestion } from '../components/SessionEditor';
 import { formatShortDate } from '../components/format';
 import { addDays, todayLocal, type LocalDate } from '../domain/civil';
 import { sessionStatus } from '../domain/session';
@@ -15,8 +13,20 @@ import type { Profile, SessionBody, SleepSession } from '../shared/api';
 import { useProfiles } from './ProfileContext';
 import styles from './NightEditor.module.css';
 
-type EditorTarget =
-  { profile: Profile; session: SleepSession } | { profile: Profile; session?: undefined; nightDate: LocalDate };
+/**
+ * What the editor opens on. Existing records are edited in place. New nights are either the
+ * profile's current night (from Today: bedtime alone is enough, the wake-up can follow) or a past
+ * night (entered complete). Suggestions are shown as unsaved values until the user saves.
+ */
+export type EditorTarget =
+  | { profile: Profile; session: SleepSession; suggest?: EditorSuggestion }
+  | {
+      profile: Profile;
+      session?: undefined;
+      nightDate: LocalDate;
+      kind: 'current' | 'past';
+      suggest?: EditorSuggestion;
+    };
 
 interface NightEditorValue {
   openEditor: (target: EditorTarget) => void;
@@ -89,7 +99,7 @@ export function NightEditorProvider({ children }: { children: ReactNode }) {
             key={openCount}
             target={target}
             onClose={close}
-            onSwitchToExisting={(profile, session) => openEditor({ profile, session })}
+            onSwitchToExisting={(session) => openEditor({ profile: target.profile, session, suggest: target.suggest })}
             onDelete={(session) => {
               setTarget(null);
               void deleteWithUndo(session);
@@ -102,10 +112,9 @@ export function NightEditorProvider({ children }: { children: ReactNode }) {
 }
 
 /**
- * One editor session. For a new night the person defaults to the opening profile but can be
- * changed for this save only (the viewing selection is untouched); the chosen person's record
- * for the chosen night is looked up first so an existing night is edited, never duplicated.
- * Existing nights always stay with their owner.
+ * One editor session for the owning profile, which is fixed: new nights belong to the profile the
+ * editor was opened for and existing nights stay with their owner. A new night is looked up first
+ * so an existing record is edited, never duplicated.
  */
 function EditorContent({
   target,
@@ -115,104 +124,82 @@ function EditorContent({
 }: {
   target: EditorTarget;
   onClose: () => void;
-  onSwitchToExisting: (profile: Profile, session: SleepSession) => void;
+  onSwitchToExisting: (session: SleepSession) => void;
   onDelete: (session: SleepSession) => void;
 }) {
-  const { profiles, selected } = useProfiles();
   const toast = useToast();
+  const { profile } = target;
   const isNew = !target.session;
-  // Inactive profiles keep their history but never receive new nights.
-  const [personId, setPersonId] = useState(() =>
-    target.profile.isActive || target.session
-      ? target.profile.id
-      : (profiles.find((p) => p.isActive)?.id ?? target.profile.id),
-  );
   const [lookupDate, setLookupDate] = useState(target.session ? target.session.nightDate : target.nightDate);
-  const person = profiles.find((p) => p.id === personId) ?? target.profile;
-  const differs = selected !== null && person.id !== selected.id;
 
-  const lookup = useQuery(isNew ? `night:${person.id}:${lookupDate}` : null, () =>
-    api.listSessions(person.id, { from: lookupDate, to: lookupDate }).then((r) => r.sessions[0] ?? null),
+  const lookup = useQuery(isNew ? `night:${profile.id}:${lookupDate}` : null, () =>
+    api.listSessions(profile.id, { from: lookupDate, to: lookupDate }).then((r) => r.sessions[0] ?? null),
   );
   const existing = isNew && lookup.status === 'success' ? lookup.data : null;
   const lookupPending = isNew && (lookup.status === 'loading' || (lookup.status === 'success' && lookup.refreshing));
-
-  const initial: SessionBody = target.session
-    ? { nightDate: target.session.nightDate, bedtime: target.session.bedtime, wakeTime: target.session.wakeTime }
-    : { nightDate: target.nightDate, bedtime: null, wakeTime: null };
+  // Inactive profiles keep their history but never receive new nights.
+  const closed = isNew && !profile.isActive;
 
   const submit = async (body: SessionBody) => {
     if (target.session) {
       await api.updateSession(target.session.id, body);
     } else {
       // Resolve again right before writing: never create a second record for this person/night.
-      const current = await api.listSessions(person.id, { from: body.nightDate, to: body.nightDate });
+      const current = await api.listSessions(profile.id, { from: body.nightDate, to: body.nightDate });
       if (current.sessions.length > 0) {
         setLookupDate(body.nightDate);
         invalidateAll();
-        throw new Error(`${person.name} already has a record for that night.`);
+        throw new Error(`${profile.name} already has a record for that night.`);
       }
-      await api.createSession({ profileId: person.id, ...body });
+      await api.createSession({ profileId: profile.id, ...body });
     }
     invalidateAll();
     onClose();
-    toast({ tone: 'success', message: `${person.name}: night ending ${formatShortDate(body.nightDate)} saved` });
+    toast({ tone: 'success', message: `${profile.name}: night ending ${formatShortDate(body.nightDate)} saved` });
   };
 
-  const personField = isNew ? (
-    <div className={styles.person}>
-      <ProfileChips
-        label="Log for"
-        size="sm"
-        activeOnly
-        profiles={profiles}
-        selectedId={person.id}
-        onSelect={setPersonId}
-      />
-      {differs && (
-        <p className={styles.personNote}>
-          <Info aria-hidden="true" />
-          <span>
-            Saving for <strong>{person.name}</strong> — you’re viewing {selected?.name}.
-          </span>
-        </p>
-      )}
-    </div>
-  ) : (
+  const owner = (
     <p className={styles.owner}>
-      <ProfileAvatar profile={person} size="sm" /> {person.name}’s night
+      <ProfileAvatar profile={profile} size="sm" /> <span>{profile.name}’s night</span>
     </p>
   );
 
-  const notice =
-    isNew && existing ? (
-      <div className={styles.conflict} role="status">
-        <p>
-          <strong>{person.name}</strong> already has a record for this night
-          {sessionStatus(existing) === 'incomplete' ? ' (incomplete)' : ''}.
-        </p>
-        <Button variant="secondary" size="sm" onClick={() => onSwitchToExisting(person, existing)}>
-          Edit {person.name}’s night
-        </Button>
-      </div>
-    ) : isNew && lookup.status === 'error' ? (
-      <p className={styles.personNote} role="alert">
-        Couldn’t check {person.name}’s existing nights. {lookup.error.message}
+  const notice = closed ? (
+    <p className={styles.conflict} role="status">
+      {profile.name} is inactive. Reactivate them to log new nights.
+    </p>
+  ) : isNew && existing ? (
+    <div className={styles.conflict} role="status">
+      <p>
+        <strong>{profile.name}</strong> already has a record for this night
+        {sessionStatus(existing) === 'incomplete' ? ' (incomplete)' : ''}.
       </p>
-    ) : null;
+      <Button variant="secondary" size="sm" onClick={() => onSwitchToExisting(existing)}>
+        Edit {profile.name}’s night
+      </Button>
+    </div>
+  ) : isNew && lookup.status === 'error' ? (
+    <p className={styles.conflict} role="alert">
+      Couldn’t check {profile.name}’s existing nights. {lookup.error.message}
+    </p>
+  ) : null;
 
+  const { session } = target;
   return (
     <SessionEditor
-      initial={initial}
-      isNew={isNew}
+      recorded={session ? { nightDate: session.nightDate, bedtime: session.bedtime, wakeTime: session.wakeTime } : null}
+      nightDate={session ? session.nightDate : target.nightDate}
+      suggest={target.suggest}
+      requireWake={!session && target.kind === 'past'}
+      nightDateEditable={session !== undefined || target.kind === 'past'}
       maxNightDate={addDays(todayLocal(), 1)}
       onSubmit={submit}
       onCancel={onClose}
-      person={personField}
+      person={owner}
       notice={notice}
-      submitBlocked={isNew && (lookupPending || existing !== null || lookup.status === 'error')}
+      submitBlocked={closed || (isNew && (lookupPending || existing !== null || lookup.status === 'error'))}
       onNightDateChange={setLookupDate}
-      onDelete={target.session ? () => onDelete(target.session!) : undefined}
+      onDelete={session ? () => onDelete(session) : undefined}
     />
   );
 }

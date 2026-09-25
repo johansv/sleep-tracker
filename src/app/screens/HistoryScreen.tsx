@@ -39,7 +39,12 @@ export function HistoryScreen() {
       title="History"
       actions={(profile) =>
         profile.isActive ? (
-          <Button variant="primary" size="sm" icon={<Plus />} onClick={() => openEditor({ profile, nightDate: today })}>
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<Plus />}
+            onClick={() => openEditor({ profile, nightDate: today, kind: 'past' })}
+          >
             Add night
           </Button>
         ) : null
@@ -145,7 +150,11 @@ function EmptyHistory({ profile, today }: { profile: Profile; today: LocalDate }
         title={`No nights for ${profile.name} yet`}
         action={
           profile.isActive ? (
-            <Button variant="primary" icon={<Plus />} onClick={() => openEditor({ profile, nightDate: today })}>
+            <Button
+              variant="primary"
+              icon={<Plus />}
+              onClick={() => openEditor({ profile, nightDate: today, kind: 'past' })}
+            >
               Add a night
             </Button>
           ) : undefined
@@ -332,7 +341,7 @@ function HistoryRow({ row, profile }: { row: Row; profile: Profile }) {
         <button
           type="button"
           className={[styles.row, styles.missingRow].join(' ')}
-          onClick={() => openEditor({ profile, nightDate: row.date })}
+          onClick={() => openEditor({ profile, nightDate: row.date, kind: 'past' })}
           aria-label={`Night ending ${formatShortDate(row.date)}: no record. Add night`}
         >
           <DateBlock date={row.date} />
@@ -408,7 +417,7 @@ function MonthOverview({
         onSelectDate={(date) => {
           const session = sessions.find((s) => s.nightDate === date);
           if (session) openEditor({ profile, session });
-          else if (profile.isActive) openEditor({ profile, nightDate: date });
+          else if (profile.isActive) openEditor({ profile, nightDate: date, kind: 'past' });
         }}
       />
       {stats && (
