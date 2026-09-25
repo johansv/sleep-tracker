@@ -2,7 +2,7 @@ import type { z } from 'zod';
 import { rangeLength } from '../domain/period';
 import { validateSession } from '../domain/session';
 import { computePeriodStats } from '../domain/stats';
-import type { SessionBody, SessionListResponse, StatsResponse } from '../shared/api';
+import type { HealthResponse, SessionBody, SessionListResponse, StatsResponse } from '../shared/api';
 import type { RequestContext } from './context';
 import * as db from './db';
 import { ApiError, json, readJson } from './http';
@@ -17,6 +17,27 @@ import {
 
 export interface Env {
   DB: D1Database;
+  /** Deployment identity (wrangler.jsonc `vars`, plus `--var` from `pnpm cf` deploys). */
+  APP_ENV?: string;
+  APP_REVISION?: string;
+  APP_SOURCE?: string;
+  CF_VERSION_METADATA?: WorkerVersionMetadata;
+}
+
+async function health(env: Env): Promise<Response> {
+  const database = await db.databaseHealth(env.DB);
+  const version = env.CF_VERSION_METADATA;
+  const body: HealthResponse = {
+    ok: database.ok,
+    environment: env.APP_ENV ?? 'local',
+    revision: env.APP_REVISION || null,
+    source: env.APP_SOURCE || null,
+    workerVersion: version?.id
+      ? { id: version.id, tag: version.tag || null, timestamp: version.timestamp || null }
+      : null,
+    database,
+  };
+  return json(body, database.ok ? 200 : 503);
 }
 
 const MAX_RANGE_DAYS = 400;
@@ -71,7 +92,7 @@ type Handler = (args: {
 }) => Promise<Response>;
 
 const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
-  ['GET', /^\/api\/health$/, async () => json({ ok: true })],
+  ['GET', /^\/api\/health$/, async ({ env }) => health(env)],
 
   [
     'GET',

@@ -1,5 +1,6 @@
 dist
 .wrangler
+.deploy
 .e2e-state
 playwright-report
 test-results

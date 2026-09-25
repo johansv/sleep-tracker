@@ -1,0 +1,139 @@
+name: Cloudflare deploy
+
+# Reusable: deploys one exact, already-resolved revision to one permanent environment through the
+# repository-owned `pnpm cf` commands. Called by deploy-revision.yml (dev/staging) and
+# release-production.yml (production); never triggered directly.
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      sha:
+        description: Exact commit to deploy (resolved by the caller)
+        type: string
+        required: true
+      source:
+        description: 'Source label, e.g. pr:12, branch:dev or main'
+        type: string
+        required: true
+      operation:
+        description: release (migrate → build/deploy → smoke) or deploy-only (no migrations)
+        type: string
+        default: release
+      seed:
+        description: After a successful deployment, (re)load demo data (dev/staging only)
+        type: boolean
+        default: false
+      pr:
+        description: Pull request to comment on (0 = none)
+        type: number
+        default: 0
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: ${{ inputs.operation }} ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.deploy.outputs.url }}
+    # One mutating operation per permanent environment at a time, across all workflows.
+    concurrency:
+      group: cloudflare-${{ inputs.environment }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read # CI evidence lookup for the revision
+      pull-requests: write # deployment comment on the source PR
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      GITHUB_TOKEN: ${{ github.token }}
+      TARGET_ENV: ${{ inputs.environment }}
+      SHA: ${{ inputs.sha }}
+      SOURCE: ${{ inputs.source }}
+      OPERATION: ${{ inputs.operation }}
+    steps:
+      - name: Check inputs
+        env:
+          SEED: ${{ inputs.seed }}
+        run: |
+          case "$OPERATION" in release|deploy-only) ;; *) echo "::error::Unknown operation $OPERATION"; exit 1;; esac
+          if [ "$TARGET_ENV" = production ] && [ "$SEED" = true ]; then echo "::error::Production is never seeded."; exit 1; fi
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Not an exact commit SHA: $SHA"; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0 # production checks that the revision is on main
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # A release reuses a complete green CI run for this exact SHA; without one, `pnpm cf release`
+      # runs `pnpm verify` itself, which needs a browser.
+      - name: Look up CI evidence
+        id: evidence
+        if: inputs.operation == 'release'
+        run: pnpm cf evidence "$SHA"
+      - name: Install browser for validation
+        if: inputs.operation == 'release' && steps.evidence.outputs.found != 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: ${{ inputs.operation }}
+        id: deploy
+        run: pnpm cf "$OPERATION" "$TARGET_ENV" --source "$SOURCE" --expect-revision "$SHA"
+
+      - name: Seed demo data
+        if: inputs.seed
+        run: pnpm cf seed "$TARGET_ENV"
+
+      - name: Comment on pull request
+        if: always() && inputs.pr > 0 && steps.deploy.outcome != 'skipped'
+        uses: actions/github-script@v7
+        env:
+          PR: ${{ inputs.pr }}
+          OUTCOME: ${{ steps.deploy.outcome }}
+          URL: ${{ steps.deploy.outputs.url }}
+          VERSION_ID: ${{ steps.deploy.outputs.version_id }}
+        with:
+          script: |
+            const { TARGET_ENV: env, SHA, SOURCE, OPERATION, OUTCOME, URL, VERSION_ID, PR } = process.env;
+            const marker = `<!-- sleep-tracker-deploy:${env} -->`;
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const ok = OUTCOME === 'success';
+            const body = [
+              marker,
+              `${ok ? '✅' : '❌'} **${OPERATION} → ${env}** ${ok ? 'succeeded' : 'failed'}`,
+              '',
+              '| | |',
+              '| --- | --- |',
+              `| URL | ${URL || '—'} |`,
+              `| Source | ${SOURCE} |`,
+              `| Revision | \`${SHA}\` |`,
+              `| Worker version | ${VERSION_ID || '—'} |`,
+              `| Run | ${run} |`,
+            ].join('\n');
+            const issue_number = Number(PR);
+            const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number });
+            const existing = comments.find((c) => c.body?.startsWith(marker));
+            if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ ...context.repo, issue_number, body });
+
+      - name: Upload validation artifacts
+        if: failure() && steps.evidence.outputs.found == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

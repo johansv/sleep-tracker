@@ -15,6 +15,7 @@
     "db:migrate": "wrangler d1 migrations apply DB --local",
     "db:seed": "tsx scripts/db.ts seed",
     "db:reset": "tsx scripts/db.ts reset",
+    "cf": "tsx scripts/cloudflare.ts",
     "fix": "prettier --write . && eslint . --fix && prettier --write .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

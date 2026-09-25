@@ -206,3 +206,23 @@ export async function deleteSession(db: D1Database, householdId: string, id: str
     .run();
   return result.meta.changes > 0;
 }
+
+/**
+ * Proves the D1 binding answers and reports the newest migration Wrangler recorded as applied
+ * (null when migrations were applied without Wrangler's `d1_migrations` table, e.g. in tests).
+ */
+export async function databaseHealth(db: D1Database): Promise<{ ok: boolean; latestMigration: string | null }> {
+  try {
+    const tracked = await db
+      .prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'd1_migrations'")
+      .first();
+    if (!tracked) return { ok: true, latestMigration: null };
+    const latest = await db
+      .prepare('SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1')
+      .first<{ name: string }>();
+    return { ok: true, latestMigration: latest?.name ?? null };
+  } catch (error) {
+    console.error('D1 health check failed', error);
+    return { ok: false, latestMigration: null };
+  }
+}

@@ -1,0 +1,64 @@
+name: Environment operations
+run-name: ${{ inputs.operation }} ${{ inputs.environment }}
+
+# Manual non-deploy operations on one permanent environment, through the same `pnpm cf` commands
+# used locally. Migrations/seed data come from the branch this workflow is run from ("Use workflow
+# from"); production operations must run from main. Seed/reset are refused for production.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [dev, staging, production]
+        default: dev
+      operation:
+        description: 'status | provision (create D1, report its id) | migrate | seed | reset | reset-and-seed'
+        type: choice
+        options: [status, provision, migrate, seed, reset, reset-and-seed]
+        default: status
+      confirm:
+        description: For reset, type the environment name again
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  operate:
+    name: ${{ inputs.operation }} ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: cloudflare-${{ inputs.environment }}
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      TARGET_ENV: ${{ inputs.environment }}
+      OPERATION: ${{ inputs.operation }}
+      CONFIRM: ${{ inputs.confirm }}
+    steps:
+      - name: Check request
+        run: |
+          if [ "$TARGET_ENV" = production ]; then
+            case "$OPERATION" in seed|reset|reset-and-seed) echo "::error::$OPERATION is never allowed on production."; exit 1;; esac
+            [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::Run production operations from main."; exit 1; }
+          fi
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: ${{ inputs.operation }} ${{ inputs.environment }}
+        run: |
+          case "$OPERATION" in
+            reset) pnpm cf reset "$TARGET_ENV" --confirm "$CONFIRM" ;;
+            reset-and-seed) pnpm cf reset "$TARGET_ENV" --confirm "$CONFIRM" --seed ;;
+            *) pnpm cf "$OPERATION" "$TARGET_ENV" ;;
+          esac

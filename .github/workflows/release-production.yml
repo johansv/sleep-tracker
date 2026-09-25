@@ -1,0 +1,71 @@
+name: Release production
+run-name: ${{ inputs.operation }} production @ ${{ inputs.sha || 'main' }}
+
+# Explicit, manual production release of an exact main revision (never automatic, never seeded or
+# reset). Protect the GitHub `production` Environment (required reviewers, main-only deployment
+# branches) so this waits for approval.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Commit on main to release (empty = current main tip)
+        type: string
+        required: false
+      operation:
+        description: release = migrate → build/deploy → smoke. deploy-only skips migrations (exceptional).
+        type: choice
+        options: [release, deploy-only]
+        default: release
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Resolve main revision
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Require the workflow from main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Run this workflow from main (it deploys main revisions with main's tooling)."
+          exit 1
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Resolve revision
+        id: resolve
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUESTED: ${{ inputs.sha }}
+        run: |
+          if [ -z "$REQUESTED" ]; then
+            pnpm cf resolve branch main
+          else
+            sha=$(git rev-parse --verify --quiet "${REQUESTED}^{commit}") || { echo "::error::Unknown commit $REQUESTED"; exit 1; }
+            git merge-base --is-ancestor "$sha" origin/main || { echo "::error::$sha is not on main"; exit 1; }
+            echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    needs: resolve
+    uses: ./.github/workflows/cloudflare-deploy.yml
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    secrets: inherit
+    with:
+      environment: production
+      sha: ${{ needs.resolve.outputs.sha }}
+      source: main
+      operation: ${{ inputs.operation }}

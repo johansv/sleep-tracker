@@ -14,7 +14,7 @@ Canonical orientation:
 
 React + TypeScript SPA built with Vite, served together with a same-origin `/api` Worker on Cloudflare Workers (via `@cloudflare/vite-plugin`) and persisted in Cloudflare D1. Wall-clock time uses Temporal (`temporal-polyfill`), charts use Recharts, API input is validated with Zod. The app is an installable, online-only PWA.
 
-Everything runs locally without a Cloudflare account, credentials, remote resources or an application login.
+Everything runs locally without a Cloudflare account, credentials, remote resources or an application login. Remote deployment to the dev, staging and production environments is an explicit, separate step (see [Deploying](#deploying)).
 
 ## Getting started
 
@@ -81,4 +81,38 @@ Automated tests never touch the developer database or remote D1:
 
 ## Delivery model
 
-main is the release branch and dev is the integration branch. Non-trivial implementation is normally described by a GitHub Issue, implemented on a branch from dev and reviewed through a PR back to dev. Releases are explicit dev-to-main integrations. CI (`.github/workflows/ci.yml`) runs the fast gate on every push and integration + E2E for review-ready PRs and pushes to dev/main, without any Cloudflare secrets. Remote Cloudflare provisioning and deployment are not set up yet: `wrangler.jsonc` carries a placeholder D1 id for local use only.
+main is the release branch and dev is the integration branch. Non-trivial implementation is normally described by a GitHub Issue, implemented on a branch from dev and reviewed through a PR back to dev. Releases are explicit dev-to-main integrations. CI (`.github/workflows/ci.yml`) runs the fast gate on every push and integration + E2E for review-ready PRs and pushes to dev/main, without any Cloudflare secrets. Deployment is manual and separate from CI; see below.
+
+## Deploying
+
+Three permanent Cloudflare environments, each with its own Worker and D1 database: **dev** (`https://sleep-dev.jscodelab.uk`), **staging** (`https://sleep-staging.jscodelab.uk`) and **production** (`https://sleep.jscodelab.uk`). The model, safety rules and release semantics are in [docs/ARCHITECTURE.md → Remote environments](docs/ARCHITECTURE.md#remote-environments). All remote operations go through `pnpm cf <command> <env>`, locally and in GitHub Actions.
+
+### Locally
+
+```sh
+pnpm install
+pnpm exec wrangler login                # or export CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
+
+pnpm cf provision staging --write       # once: create the D1 database, write its id to wrangler.jsonc — commit it
+pnpm cf migrate staging                 # apply migrations to the remote database
+pnpm cf seed staging                    # optional demo data (dev/staging only; idempotent)
+pnpm cf reset staging --confirm staging # destructive: drop all tables and re-migrate (add --seed to reload demo data)
+
+pnpm cf release staging                 # normal: CI evidence (or pnpm verify) → migrate → clean build/deploy → smoke
+pnpm cf deploy-only staging             # exceptional: deploy code without migrations
+pnpm cf status staging                  # deployed revision/source, Worker version, pending migrations
+```
+
+`release`/`deploy-only` deploy the committed `HEAD` (a dirty tree is refused) and label it `local:<branch>` unless `--source` is given; production additionally requires `HEAD` to be on `main`. `seed` and `reset` are refused for production.
+
+### From GitHub Actions (Actions → Run workflow)
+
+- **Deploy revision (dev/staging)** — a PR number (its current head) or branch (its tip), `release` or `deploy-only`, optionally seeding afterwards. The run summary and a single PR comment show the deployed SHA, URL and Worker version.
+- **Environment operations** — `status`, `provision`, `migrate`, `seed`, `reset`, `reset-and-seed` (reset asks you to type the environment name).
+- **Release production** — from `main`: releases the main tip or a given commit on main.
+
+One-time setup: create GitHub Environments `dev`, `staging` and `production` (protect `production` with required reviewers and main-only deployments), each with secrets `CLOUDFLARE_API_TOKEN` (Workers Scripts, D1 and Workers Routes/custom domain edit for the `jscodelab.uk` zone) and `CLOUDFLARE_ACCOUNT_ID`; add `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` if the hostnames sit behind Cloudflare Access. Then run **Environment operations → provision** for each environment and commit the reported database id to `wrangler.jsonc`.
+
+### Rollback
+
+`pnpm exec wrangler rollback --name sleep-tracker-<env>` rolls back code only. Data/schema recovery uses D1 Time Travel on the named database (`pnpm exec wrangler d1 time-travel info|restore sleep-tracker-<env>`); see the architecture doc before restoring.
