@@ -1,0 +1,80 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Top level = local development, tests and E2E (no Cloudflare account needed). The remote
+  // environments below are selected explicitly: `CLOUDFLARE_ENV=<env>` at build time (Vite
+  // plugin) and `--env <env>` for Wrangler D1 commands. Use `pnpm cf …` (scripts/cloudflare.ts)
+  // rather than calling these directly; see docs/ARCHITECTURE.md → Remote environments.
+  "name": "sleep-tracker",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"],
+  },
+  "observability": { "enabled": true },
+  "vars": { "APP_ENV": "local" },
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sleep-tracker",
+      // Local-only placeholder; the local store never reaches Cloudflare.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
+
+  // Bindings and vars are not inherited by environments, so each repeats them with its own D1.
+  // A database_id of all zeros means "not provisioned yet": run `pnpm cf provision <env>` and
+  // commit the id it prints.
+  "env": {
+    "dev": {
+      "name": "sleep-tracker-dev",
+      "workers_dev": false,
+      "preview_urls": false,
+      "routes": [{ "pattern": "sleep-dev.jscodelab.uk", "custom_domain": true }],
+      "vars": { "APP_ENV": "dev" },
+      "version_metadata": { "binding": "CF_VERSION_METADATA" },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "sleep-tracker-dev",
+          "database_id": "00000000-0000-0000-0000-000000000000",
+          "migrations_dir": "migrations",
+        },
+      ],
+    },
+    "staging": {
+      "name": "sleep-tracker-staging",
+      "workers_dev": false,
+      "preview_urls": false,
+      "routes": [{ "pattern": "sleep-staging.jscodelab.uk", "custom_domain": true }],
+      "vars": { "APP_ENV": "staging" },
+      "version_metadata": { "binding": "CF_VERSION_METADATA" },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "sleep-tracker-staging",
+          "database_id": "00000000-0000-0000-0000-000000000000",
+          "migrations_dir": "migrations",
+        },
+      ],
+    },
+    "production": {
+      "name": "sleep-tracker-production",
+      "workers_dev": false,
+      "preview_urls": false,
+      "routes": [{ "pattern": "sleep.jscodelab.uk", "custom_domain": true }],
+      "vars": { "APP_ENV": "production" },
+      "version_metadata": { "binding": "CF_VERSION_METADATA" },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "sleep-tracker-production",
+          "database_id": "00000000-0000-0000-0000-000000000000",
+          "migrations_dir": "migrations",
+        },
+      ],
+    },
+  },
+}

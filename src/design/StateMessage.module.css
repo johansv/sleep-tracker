@@ -1,0 +1,48 @@
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-2);
+  padding: var(--space-10) var(--space-6);
+}
+
+.compact {
+  padding: var(--space-6) var(--space-4);
+}
+
+.icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+
+.icon svg {
+  width: 26px;
+  height: 26px;
+}
+
+.error .icon {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+
+.body {
+  max-width: 36ch;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.action {
+  margin-top: var(--space-3);
+}

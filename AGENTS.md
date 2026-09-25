@@ -5,8 +5,8 @@ This repo is optimized for coding-agent development. Keep context small and use 
 ## Read in this order
 
 1. Active Issue/PR for task-specific scope and acceptance.
-2. PRODUCT.md for product semantics, UX and V1 scope.
-3. ARCHITECTURE.md for architecture, data, testing and Git constraints.
+2. docs/PRODUCT.md for product semantics, UX and V1 scope.
+3. docs/ARCHITECTURE.md for architecture, data, testing and Git constraints.
 4. Only the relevant implementation/tests.
 
 README is orientation, not a parallel specification.
@@ -26,6 +26,7 @@ Preserve these unless the task explicitly changes accepted product direction:
 - Mobile logging must feel like a polished consumer/native app; desktop uses extra space for richer analysis.
 - Color/form are coherent and functional, not decorative clutter.
 - Deterministic seed data and login-free local/E2E operation are required development capabilities.
+- Automated tests/E2E own disposable isolated D1 state; never read, reset or otherwise depend on a human developer's persisted local database, and never use remote D1 for validation.
 
 ## Intended code ownership
 
@@ -38,7 +39,7 @@ Preserve these unless the task explicitly changes accepted product direction:
 - migrations — D1 schema history
 - tests/e2e — browser flows
 
-ARCHITECTURE.md is authoritative if the implemented map intentionally evolves.
+docs/ARCHITECTURE.md is authoritative if the implemented map intentionally evolves.
 
 ## Git workflow
 
@@ -55,15 +56,20 @@ Do not merge, release or deploy unless that consequential action is explicitly d
 - Prefer the smallest architecture that satisfies the accepted product.
 - Keep domain calculations pure and strongly tested.
 - Validate API input at runtime and use parameterized SQL.
-- Do not add an ORM, heavy global state/design framework, SSR, service worker, auth layer or other large dependency unless it earns concrete value and remains consistent with ARCHITECTURE.md.
+- Do not add an ORM, heavy global state/design framework, SSR, service worker, auth layer or other large dependency unless it earns concrete value and remains consistent with docs/ARCHITECTURE.md.
 - Extend the design system from real component needs and reuse semantic tokens rather than one-off visual values.
 - Reuse deterministic seed scenarios for statistics/browser validation where practical.
 - Keep durable knowledge in its natural owner; do not create extra planning/state docs when Issue/PR/commits already carry that state.
 
 ## Validation
 
-Run repository-owned checks relevant to the change. The implemented repo must provide the command surface defined in ARCHITECTURE.md, including pnpm check, tests/build/E2E and DB seed/reset.
+Validate progressively (command surface in docs/ARCHITECTURE.md):
 
-For UI/interaction changes inspect the running app in a real browser. When layout is affected, validate the primary mobile target, another mobile size and desktop. Green CI alone does not prove responsive interaction quality.
+- While implementing, run the narrowest relevant checks by file/spec/project (e.g. `pnpm test src/domain`, `pnpm test:integration`, `pnpm test:e2e tests/e2e/logging.spec.ts`), and `pnpm fix` before read-only checks.
+- Expand to dependents when the change's dependency or risk surface warrants it; `pnpm check` is the fast gate.
+- Run `pnpm verify` once for a coherent review candidate, not after every step.
+- Test/E2E commands provision their own isolated state; never assume a pre-running app or developer database.
+
+For UI/interaction changes inspect the running app in a real browser at the affected viewport(s); use the canonical mobile/smaller-mobile/desktop set when layout has responsive blast radius or for final review. Green CI alone does not prove responsive interaction quality.
 
 Review evidence is revision-specific; after material changes ensure conclusions apply to the current PR head.

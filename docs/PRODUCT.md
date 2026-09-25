@@ -18,7 +18,7 @@ The product measures time in bed, not actual sleep. It does not know when someon
 - Wake-up time: manually recorded local date and clock time when the person gets up / the tracked time-in-bed interval ends, not sensor-detected awakening.
 - Sleep session: one profile's record for one night, containing bedtime, wake-up, or both.
 - Complete session: both endpoints are present and form a valid wall-clock interval.
-- Incomplete session: exactly one endpoint is present. It remains editable but is excluded from statistics.
+- Incomplete session: exactly one endpoint is present. It remains editable but is excluded from statistics. Normal logging only creates bedtime-only incomplete sessions (a night in progress, or one still awaiting its wake-up); wake-up-only records may exist from earlier data and must stay inspectable and repairable.
 - Time in bed: wall-clock duration from bedtime to wake-up. UI copy should not claim that this is actual time asleep.
 
 ## Time semantics
@@ -31,6 +31,8 @@ These rules are product semantics and must not be silently changed by implementa
 - DST changes and timezone travel can therefore differ from physical elapsed time. This is an accepted V1 limitation.
 - A complete session belongs to its wake-up date. UI should remove ambiguity where useful, for example “Night ending 25 Sep”.
 - Incomplete sessions store an explicit night date so they can be found and completed later. When wake-up exists, its local date must equal the night date.
+- Users log a night plus clock times; the application derives complete local date-times for ordinary overnight cases. For the night ending 24 Sep, bedtime 23:30 + wake-up 07:00 means 23 Sep 23:30 → 24 Sep 07:00, and bedtime 01:30 + wake-up 07:00 means 24 Sep 01:30 → 24 Sep 07:00. Unusual bedtime dates remain possible without being part of the normal flow.
+- Already-stored endpoint dates are never silently reinterpreted or moved when another endpoint is completed or edited.
 - Default display/input is 24-hour time. A future AM/PM preference is presentation only and must never change stored values or calculations.
 
 Examples:
@@ -44,16 +46,29 @@ Examples:
 
 The user can create, rename/edit, activate/deactivate and select profiles, and can inspect history for inactive profiles. Profiles are tracked people, not login identities.
 
+- Inactive profiles are excluded from new and current logging (they are never offered as a logging target and cannot gain new records), but their existing records remain inspectable, editable and deletable.
+- The selected profile is the persistent browsing context for profile-scoped screens (Today, History, Insights) and must be unmistakable there; identity color may reinforce it but is never the only cue.
+- The selected profile owns every new logging action. There is no second logging-target selector: to log for someone else, select that profile. The owner is shown clearly whenever the night editor is open and cannot be changed there.
+- Editing an existing night keeps its owning profile; nights are not moved between profiles. New logging always acts on the owner's actual record for the night (an existing night is edited, never duplicated).
+
 ### Logging and history
 
-For any profile the user can:
+All night writes from the UI are reviewed and explicitly saved in one focused night editor (a modal sheet), so the surrounding profile/context cannot change during an edit. Entry points may suggest values, but nothing is persisted until the user saves.
 
-- record bedtime and wake-up, in either order;
-- save and later complete an incomplete session;
-- add historical sessions;
-- edit both date and clock time of either endpoint;
-- delete a session with an appropriately safe confirmation/undo interaction;
-- inspect chronological history.
+For an active profile the user can create new records:
+
+- current night: in the evening, “Going to bed” opens the selected profile's current night with the current local time suggested as bedtime; it can be adjusted and saved without a wake-up. In the morning, “I'm up” opens the same night with the current time suggested as wake-up; a recorded bedtime stays visible and unchanged unless edited, and a missing bedtime must be supplied before the night can be saved;
+- while a current bedtime-only night is in progress, Today shows elapsed time in bed so far (never implied to be sleep). Older incomplete nights are shown as needing completion rather than as an ongoing session;
+- historical nights: adding a night from History means entering a completed past night. It starts with no endpoint values and needs both bedtime and wake-up before it can be saved.
+
+The editor distinguishes values that are not recorded, recorded, suggested but not yet saved, invalid and unusual. Missing values never look recorded and a new night never looks complete before data is entered. Impossible or ambiguous combinations cannot be saved; unusual but possible ones show a warning and require an explicit “Save anyway”.
+
+For any profile, active or inactive, the user can work with existing records:
+
+- inspect chronological history;
+- edit clock times, and when needed the night and bedtime dates (including completing an existing incomplete session);
+- remove the wake-up of an existing night, which is distinct from deleting the whole night;
+- delete a session with an appropriately safe confirmation/undo interaction.
 
 The current-night flow should be exceptionally quick on mobile and require minimal navigation and typing.
 
@@ -63,6 +78,7 @@ The current-night flow should be exceptionally quick on mobile and require minim
 - An incomplete session remains visible and easy to correct.
 - Only complete sessions participate in duration, averages, consistency, comparisons and other statistics.
 - Every statistical view exposes coverage, for example “24 complete nights of 30”.
+- In an in-progress current week/month/year, nights that have not happened yet are not missing and are not part of the coverage denominator.
 
 ### Statistics
 
@@ -147,7 +163,7 @@ It should include at least:
 - one sparse/new profile;
 - bedtimes before and after midnight;
 - weekday variation and several months of history;
-- bedtime-only and wake-only sessions;
+- bedtime-only and (legacy) wake-only sessions;
 - periods of both high and low consistency.
 
 Selected fixture periods should have testable expected aggregates.

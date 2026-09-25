@@ -1,0 +1,183 @@
+.shell {
+  min-height: 100dvh;
+}
+
+.main {
+  min-width: 0;
+  padding: calc(var(--safe-top) + var(--space-4)) calc(var(--safe-right) + var(--space-4))
+    calc(var(--tabbar-height) + var(--safe-bottom) + var(--space-8)) calc(var(--safe-left) + var(--space-4));
+}
+
+.nav {
+  position: fixed;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
+  background: rgb(16 19 31 / 0.86);
+  backdrop-filter: saturate(160%) blur(18px);
+  -webkit-backdrop-filter: saturate(160%) blur(18px);
+  border-top: 1px solid var(--color-border);
+}
+
+.brand,
+.navNote {
+  display: none;
+}
+
+.navList {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  height: var(--tabbar-height);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.navLink {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 100%;
+  color: var(--color-text-tertiary);
+  font-size: 0.6875rem;
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+.navLink[aria-current='page'] {
+  color: var(--color-accent-strong);
+}
+
+.navIcon {
+  width: 24px;
+  height: 24px;
+}
+
+.offline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.offline svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
+@media (min-width: 900px) {
+  .shell {
+    display: grid;
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  }
+
+  .nav {
+    position: sticky;
+    top: 0;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+    padding: var(--space-6) var(--space-4);
+    background: var(--color-bg-raised);
+    backdrop-filter: none;
+    border-top: 0;
+    border-right: 1px solid var(--color-border);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 0 var(--space-2);
+    font-family: var(--font-display);
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
+  }
+
+  .navList {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    height: auto;
+  }
+
+  .navLink {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: var(--space-3);
+    min-height: var(--touch-target);
+    padding: 0 var(--space-3);
+    border-radius: var(--radius-md);
+    font-size: var(--text-md);
+    color: var(--color-text-secondary);
+  }
+
+  .navLink:hover {
+    background: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  .navLink[aria-current='page'] {
+    background: var(--color-surface-2);
+    color: var(--color-text);
+  }
+
+  .navLink[aria-current='page'] .navIcon {
+    color: var(--color-accent);
+  }
+
+  .navIcon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .navNote {
+    display: block;
+    margin-top: auto;
+    padding: 0 var(--space-2);
+    color: var(--color-text-tertiary);
+    font-size: var(--text-xs);
+  }
+
+  .main {
+    width: 100%;
+    max-width: var(--content-max);
+    margin: 0 auto;
+    padding: var(--space-8) var(--space-10) var(--space-12);
+  }
+}
+
+/* Non-production context only. Fixed positioning gives this zero layout footprint: it never
+   changes production spacing, wrapping, breakpoints, scroll size or component geometry. */
+.environmentIndicator {
+  position: fixed;
+  z-index: 8;
+  top: calc(var(--safe-top) + 5px);
+  right: calc(var(--safe-right) + 5px);
+  pointer-events: none;
+  user-select: none;
+  padding: 2px 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-bg-raised);
+  color: var(--color-text-tertiary);
+  font-size: 0.5625rem;
+  font-weight: var(--weight-semibold);
+  line-height: 1.1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.58;
+}
