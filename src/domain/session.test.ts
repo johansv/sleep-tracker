@@ -77,8 +77,9 @@ describe('session validation', () => {
     expect(resolveBedtime('2026-09-24', '00:00', '07:00')).toBe('2026-09-24T00:00');
     // Day sleepers: bedtime is the latest occurrence of its clock before wake-up.
     expect(resolveBedtime('2026-09-24', '08:00', '15:00')).toBe('2026-09-24T08:00');
-    // Same clock as wake-up means a full day before, which is flagged as unusual, never invalid.
-    expect(inferBedtimeOffset('07:00', '07:00')).toBe(-1);
+    // Equal clocks are ambiguous (nothing, or a full day): never guessed.
+    expect(inferBedtimeOffset('07:00', '07:00')).toBeNull();
+    expect(resolveBedtime('2026-09-24', '07:00', '07:00')).toBeNull();
     // Without a wake-up, noon splits the evening before from after midnight.
     expect(inferBedtimeOffset('12:00', null)).toBe(-1);
     expect(inferBedtimeOffset('11:59', null)).toBe(0);

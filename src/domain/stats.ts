@@ -1,4 +1,13 @@
-import { addDays, civilMinutesBetween, datesInRange, isoWeekday, minuteOfDay, timePart, type LocalDate } from './civil';
+import {
+  addDays,
+  civilMinutesBetween,
+  datesInRange,
+  isoWeekday,
+  MINUTES_PER_DAY,
+  minuteOfDay,
+  timePart,
+  type LocalDate,
+} from './civil';
 import { summarizeClockTimes, type ClockSummary } from './circular';
 import { mean, median } from './numeric';
 import { containsDate, type DateRange } from './period';
@@ -12,8 +21,9 @@ export interface NightPoint {
   /** Time in bed; only set for complete nights. */
   minutes: number | null;
   /**
-   * Endpoint positions as civil minutes since 12:00 on the day before the night date, giving
-   * one continuous evening→morning axis (18:00 = 360, 00:00 = 720, 07:00 = 1140).
+   * Endpoint clock positions in minutes since noon, giving one continuous evening→morning axis
+   * (18:00 = 360, 00:00 = 720, 07:00 = 1140). A complete night's wake-up is its bedtime plus its
+   * duration (see `nightAxis`).
    */
   bedtimeOffset: number | null;
   wakeOffset: number | null;
@@ -61,6 +71,21 @@ export function axisOffset(nightDate: LocalDate, value: string): number {
   return civilMinutesBetween(`${addDays(nightDate, -1)}T12:00`, value);
 }
 
+const wrapDay = (minutes: number) => ((minutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+
+/**
+ * Where a night is drawn on the noon→noon clock axis used by timelines and charts. The axis shows
+ * clock times, so an endpoint is placed by its clock and a complete night spans its real duration
+ * from bedtime: 19:30 → 23:25 on the night date is drawn as an evening interval rather than falling
+ * off the axis. Stored values and durations are untouched.
+ */
+export function nightAxis(s: SessionEndpoints): Pick<NightPoint, 'bedtimeOffset' | 'wakeOffset'> {
+  const minutes = timeInBedMinutes(s);
+  const bedtimeOffset = s.bedtime ? wrapDay(axisOffset(s.nightDate, s.bedtime)) : null;
+  if (minutes !== null && bedtimeOffset !== null) return { bedtimeOffset, wakeOffset: bedtimeOffset + minutes };
+  return { bedtimeOffset, wakeOffset: s.wakeTime ? wrapDay(axisOffset(s.nightDate, s.wakeTime)) : null };
+}
+
 function summarizeDurations(values: number[]): DurationSummary {
   return {
     meanMinutes: mean(values),
@@ -87,8 +112,7 @@ export function computePeriodStats(sessions: readonly SessionEndpoints[], range:
       date,
       status: sessionStatus(s),
       minutes: timeInBedMinutes(s),
-      bedtimeOffset: s.bedtime ? axisOffset(date, s.bedtime) : null,
-      wakeOffset: s.wakeTime ? axisOffset(date, s.wakeTime) : null,
+      ...nightAxis(s),
     };
   });
 

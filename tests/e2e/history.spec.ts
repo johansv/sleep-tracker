@@ -69,6 +69,36 @@ test('adds, edits and deletes (with undo) a historical night @responsive', async
   await expect(page.getByRole('heading', { name: /No nights for/ })).toBeVisible();
 });
 
+test('draws a night that ends before midnight on its night date', async ({ page }) => {
+  await createProfile(page, uniqueName('Eve'));
+  await goTo(page, 'History');
+  await page.getByRole('button', { name: 'Add night' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Add night' });
+  await dialog.getByLabel('Night ending').fill('2026-09-23');
+  for (const [label, value] of [
+    ['Bedtime', '19:30'],
+    ['Wake-up', '23:25'],
+  ] as const) {
+    const field = dialog.getByRole('textbox', { name: label });
+    await field.fill(value);
+    await field.press('Enter');
+  }
+  await expect(dialog.getByRole('group', { name: 'Went to bed' })).toContainText('Wed 23 Sep');
+  await dialog.getByRole('button', { name: 'Save night' }).click();
+
+  const row = page.getByRole('button', { name: /Night ending Wed 23 Sep: 3 h 55 min, 19:30 to 23:25/ });
+  await expect(row).toBeVisible();
+  // The evening interval sits inside the 18:00 → 12:00 timeline instead of collapsing at its edge.
+  const bar = await row.evaluate((el) => {
+    const track = el.querySelector('[aria-hidden="true"][class*="track"]')!;
+    const span = track.querySelector('[class*="bar"]')!.getBoundingClientRect();
+    const box = track.getBoundingClientRect();
+    return { left: (span.left - box.left) / box.width, width: span.width / box.width };
+  });
+  expect(bar.left).toBeGreaterThan(0.05);
+  expect(bar.width).toBeGreaterThan(0.15);
+});
+
 test('repairs a legacy wake-only night by adding its bedtime', async ({ page }) => {
   const name = uniqueName('Ivo');
   await createProfile(page, name);

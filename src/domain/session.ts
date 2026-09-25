@@ -126,15 +126,25 @@ export function nightForWake(wakeTime: LocalDateTime): LocalDate {
  * the night date, -1 = the evening before. With a wake-up clock, bedtime is the latest occurrence of
  * its clock before wake-up (23:30 → 07:00 is the evening before; 01:30 → 07:00 is the same day).
  * Without one, clock times from noon onwards are taken as the evening before.
+ * Equal bedtime and wake-up clocks are ambiguous (no time in bed, or a full day) and give null:
+ * the date has to be chosen explicitly.
  */
-export function inferBedtimeOffset(bedClock: ClockTime, wakeClock: ClockTime | null): -1 | 0 {
-  if (wakeClock !== null) return minuteOfDay(bedClock) < minuteOfDay(wakeClock) ? 0 : -1;
-  return minuteOfDay(bedClock) >= 12 * 60 ? -1 : 0;
+export function inferBedtimeOffset(bedClock: ClockTime, wakeClock: ClockTime | null): -1 | 0 | null {
+  if (wakeClock === null) return minuteOfDay(bedClock) >= 12 * 60 ? -1 : 0;
+  const bed = minuteOfDay(bedClock);
+  const wake = minuteOfDay(wakeClock);
+  if (bed === wake) return null;
+  return bed < wake ? 0 : -1;
 }
 
-/** Complete local bedtime for an ordinary night ending `nightDate` (see `inferBedtimeOffset`). */
-export function resolveBedtime(nightDate: LocalDate, bedClock: ClockTime, wakeClock: ClockTime | null): LocalDateTime {
-  return combine(addDays(nightDate, inferBedtimeOffset(bedClock, wakeClock)), bedClock);
+/** Complete local bedtime for an ordinary night ending `nightDate`, or null when ambiguous. */
+export function resolveBedtime(
+  nightDate: LocalDate,
+  bedClock: ClockTime,
+  wakeClock: ClockTime | null,
+): LocalDateTime | null {
+  const offset = inferBedtimeOffset(bedClock, wakeClock);
+  return offset === null ? null : combine(addDays(nightDate, offset), bedClock);
 }
 
 export type OpenNightState = 'upcoming' | 'in_progress' | 'stale';

@@ -126,11 +126,16 @@ export function SessionEditor({
 
   const validDate = isLocalDate(nightDate);
   const effectiveOffset = bedClock === null ? null : (bedOffset ?? inferBedtimeOffset(bedClock, wakeClock));
-  const bedtime = validDate && bedClock !== null ? combine(addDays(nightDate, effectiveOffset!), bedClock) : null;
+  // Equal clocks without a known bedtime date could mean no time in bed or a full day.
+  const ambiguous = bedClock !== null && effectiveOffset === null;
+  const bedtime =
+    validDate && bedClock !== null && effectiveOffset !== null
+      ? combine(addDays(nightDate, effectiveOffset), bedClock)
+      : null;
   const wakeTime = validDate && wakeClock !== null ? combine(nightDate, wakeClock) : null;
   const body: SessionBody = { nightDate, bedtime, wakeTime };
 
-  const bedState = endpointState(bedtime, recorded?.bedtime ?? null, suggest?.bedtime);
+  const bedState = ambiguous ? 'unsaved' : endpointState(bedtime, recorded?.bedtime ?? null, suggest?.bedtime);
   const wakeState = endpointState(wakeTime, recorded?.wakeTime ?? null, suggest?.wakeTime);
 
   // Missing required input is guidance, not an error; impossible combinations are errors.
@@ -144,7 +149,9 @@ export function SessionEditor({
         : 'Add a bedtime to save — the wake-up can follow later.';
     if (requireWake) needs = 'Add the bedtime and wake-up to save this night.';
   } else if (requireWake && wakeClock === null) needs = 'Add the wake-up time to save this night.';
-  else error = validateSession(body)[0]?.message ?? null;
+  else if (ambiguous) {
+    error = `Bedtime and wake-up are both ${bedClock}. Change one, or choose the bedtime date for a full day in bed.`;
+  } else error = validateSession(body)[0]?.message ?? null;
 
   const savable = needs === null && error === null;
   const warnings = savable ? sessionWarnings(body) : [];
@@ -222,7 +229,8 @@ export function SessionEditor({
                   type="button"
                   className={styles.textButton}
                   onClick={() => {
-                    setBedOffset(effectiveOffset);
+                    // An ambiguous bedtime starts from the evening before; the user confirms the date.
+                    setBedOffset(effectiveOffset ?? -1);
                     setBedDateManual(true);
                   }}
                 >

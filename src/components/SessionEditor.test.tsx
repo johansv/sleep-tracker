@@ -126,6 +126,34 @@ describe('SessionEditor: existing records', () => {
     expect(onSubmit).toHaveBeenCalledWith({ ...recorded, wakeTime: '2026-09-25T07:00' });
   });
 
+  it('does not guess between no time and a full day when both clocks are equal', async () => {
+    const { user, onSubmit, type, endpoint } = setup({ requireWake: true });
+    await type('Wake-up', '07:00');
+    await type('Bedtime', '07:00');
+    expect(screen.getByText(/Bedtime and wake-up are both 07:00/)).toBeInTheDocument();
+    expect(endpoint('Went to bed').queryByText(/Sep/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save night' })).toBeDisabled();
+
+    // Choosing the bedtime date explicitly resolves it, as an unusual night that needs confirming.
+    await user.click(screen.getByRole('button', { name: 'Change bedtime date' }));
+    expect(screen.getByLabelText('Bedtime date', { selector: 'input' })).toHaveValue('2026-09-24');
+    expect(screen.getByText(/very long time in bed/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save anyway' }));
+    expect(onSubmit).toHaveBeenCalledWith({
+      nightDate: '2026-09-25',
+      bedtime: '2026-09-24T07:00',
+      wakeTime: '2026-09-25T07:00',
+    });
+  });
+
+  it('keeps a stored bedtime date explicit even when the clocks match', async () => {
+    const recorded = { nightDate: '2026-09-25', bedtime: '2026-09-24T07:00', wakeTime: null };
+    const { type } = setup({ recorded });
+    await type('Wake-up', '07:00');
+    expect(screen.queryByText(/are both 07:00/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save anyway' })).toBeEnabled();
+  });
+
   it('blocks impossible combinations', async () => {
     const recorded = { nightDate: '2026-09-25', bedtime: '2026-09-25T00:40', wakeTime: '2026-09-25T08:15' };
     const { type } = setup({ recorded });

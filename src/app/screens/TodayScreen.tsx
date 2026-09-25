@@ -14,7 +14,7 @@ import {
   sessionStatus,
   timeInBedMinutes,
 } from '../../domain/session';
-import { axisOffset, computePeriodStats } from '../../domain/stats';
+import { computePeriodStats, nightAxis } from '../../domain/stats';
 import { Button } from '../../design/Button';
 import { LoadingBlock, Skeleton } from '../../design/Skeleton';
 import { Surface, SectionHeader } from '../../design/Surface';
@@ -307,11 +307,7 @@ function Hero({
           </span>
         </p>
         <div className={styles.heroBar}>
-          <NightBar
-            status="complete"
-            bedtimeOffset={axisOffset(session.nightDate, session.bedtime!)}
-            wakeOffset={axisOffset(session.nightDate, session.wakeTime!)}
-          />
+          <NightBar status="complete" {...nightAxis(session)} />
           <div className={styles.heroBarLabels} aria-hidden="true">
             <span>18:00</span>
             <span>00:00</span>
