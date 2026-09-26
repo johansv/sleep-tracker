@@ -14,7 +14,7 @@ Canonical orientation:
 
 React + TypeScript SPA built with Vite, served together with a same-origin `/api` Worker on Cloudflare Workers (via `@cloudflare/vite-plugin`) and persisted in Cloudflare D1. Wall-clock time uses Temporal (`temporal-polyfill`), charts use Recharts, API input is validated with Zod. The app is an installable, online-only PWA.
 
-Everything runs locally without a Cloudflare account, credentials, remote resources or an application login. Remote deployment to the dev, staging and production environments is an explicit, separate step (see [Deploying](#deploying)).
+Everything runs locally without a Cloudflare account, credentials, remote resources or an application login: on `localhost` the app acts as a fixed local identity, while every deployed environment asks for its application password ([docs/ARCHITECTURE.md → Application auth](docs/ARCHITECTURE.md#application-auth)). Remote deployment to the dev, staging and production environments is an explicit, separate step (see [Deploying](#deploying)).
 
 ## Getting started
 
@@ -62,21 +62,21 @@ Automated tests never touch the developer database or remote D1:
 
 - `pnpm test:integration` creates a fresh in-memory D1 database per test with Miniflare.
 - Every E2E journey runs at the primary iPhone 15 Pro Max viewport; journeys tagged `@responsive` also run at a small phone and desktop.
-- `pnpm test:e2e` creates a disposable state directory under `.e2e-state/<run>/`, applies migrations, seeds the demo data at a fixed anchor (2026-09-24), builds the app into that directory and serves the production build with `wrangler dev` on free ports against that state. The directory is removed afterwards (`E2E_KEEP_STATE=1` keeps it). Runs need no pre-started server, and parallel runs don't share mutable state. Tests fix the browser clock and time zone, so results do not depend on the real date.
+- `pnpm test:e2e` creates a disposable state directory under `.e2e-state/<run>/`, applies migrations, seeds the demo data at a fixed anchor (2026-09-24) plus a fixed test-only app password (used only by the sign-in spec; other journeys use the local identity), builds the app into that directory and serves the production build with `wrangler dev` on free ports against that state. The directory is removed afterwards (`E2E_KEEP_STATE=1` keeps it). Runs need no pre-started server, and parallel runs don't share mutable state. Tests fix the browser clock and time zone, so results do not depend on the real date.
 - Extra arguments are passed to Playwright, e.g. `pnpm test:e2e --project desktop`.
 - Playwright uses its own Chromium (`pnpm exec playwright install chromium`); set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to use a preinstalled one.
 
 ## Repository map
 
 - `src/domain` — pure civil-time, period, coverage, circular and statistics rules
-- `src/worker` — Worker entry, routes, input schemas, D1 persistence; `context.ts` is where future auth plugs in
+- `src/worker` — Worker entry, routes, input schemas, D1 persistence, application auth (`auth.ts`, `password.ts`)
 - `src/api` — typed browser API client and minimal online-only data loading
 - `src/app` — app shell, routing and the Today / History / Insights / People screens
 - `src/components` — product components (session editor, time field, charts, calendar…)
 - `src/design` — semantic tokens (`tokens.css`) and visual primitives (button, surface, sheet, toast…)
 - `src/shared` — browser/Worker API types
 - `migrations` — D1 schema history
-- `scripts` — demo data, DB and E2E runners, icon generation
+- `scripts` — demo data, DB and E2E runners, icon generation, remote operations (`pnpm cf`, `pnpm auth`)
 - `tests/e2e` — Playwright flows
 
 ## Delivery model
@@ -93,9 +93,11 @@ Three permanent Cloudflare environments, each with its own Worker and D1 databas
 pnpm install
 pnpm exec wrangler login                # or export CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
 
-pnpm cf provision staging --write       # once: create the D1 database, write its id to wrangler.jsonc — commit it
-pnpm cf doctor staging                  # read-only config/auth/D1 preflight
+pnpm cf provision staging --write       # bootstrap only: create the D1 database, write its id to wrangler.jsonc — commit it
+pnpm cf doctor staging                  # read-only config/auth/D1/password preflight
 pnpm cf migrate staging                 # apply migrations to the remote database
+pnpm auth set-password staging          # set or rotate the app password (hidden prompt; ends every session)
+pnpm auth verify staging                # sign in through the real site and check the boundary end to end
 pnpm cf seed staging                    # deterministic canonical demo data (dev/staging only)
 pnpm cf seed staging --anchor today     # intentionally move demo data to today's date
 pnpm cf reset staging --confirm staging # destructive: drop all tables and re-migrate (add --seed to reload demo data)
@@ -108,15 +110,17 @@ pnpm cf tail staging                    # live Worker logs; Ctrl-C to stop
 pnpm cf help                            # compact command reference
 ```
 
-`release`/`deploy-only` deploy the committed `HEAD` (a dirty tree is refused) and label it `local:<branch>` unless `--source` is given; production additionally requires `HEAD` to be on `main`. `seed` and `reset` are refused for production. Remote seed defaults to the stable canonical anchor `2026-09-24`; pass `--anchor today` only when a moving demo dataset is intentional.
+All three environments are provisioned; their D1 ids are committed in `wrangler.jsonc`. A new environment is bootstrapped with provision → migrate → set-password → release → verify ([docs/ARCHITECTURE.md → Bootstrap](docs/ARCHITECTURE.md#bootstrap-versus-routine-operation)).
+
+`release`/`deploy-only` refuse an environment without an application password and deploy the committed `HEAD` (a dirty tree is refused) and label it `local:<branch>` unless `--source` is given; production additionally requires `HEAD` to be on `main`. `seed` and `reset` are refused for production. Remote seed defaults to the stable canonical anchor `2026-09-24`; pass `--anchor today` only when a moving demo dataset is intentional.
 
 ### From GitHub Actions (Actions → Run workflow)
 
 - **Deploy revision (dev/staging)** — a PR number (its current head; PRs from forks are refused) or branch (its tip), `release` or `deploy-only`, optionally seeding afterwards. The run summary and a single PR comment show the deployed SHA, URL and Worker version.
-- **Environment operations** — `doctor`, `status`, `provision`, `migrate`, `seed`, `reset`, `reset-and-seed` (reset asks you to type the environment name; seed anchor is explicit and deterministic).
+- **Environment operations** — `doctor`, `status`, `migrate`, `seed`, `reset`, `reset-and-seed` (reset asks you to type the environment name and also removes the app password; seed anchor is explicit and deterministic). Provisioning and passwords are local-only (above).
 - **Release production** — from `main`: releases the main tip or a given commit on main.
 
-One-time setup: create GitHub Environments `dev`, `staging` and `production` (protect `production` with required reviewers and main-only deployments), each with secrets `CLOUDFLARE_API_TOKEN` (Workers Scripts, D1 and Workers Routes/custom domain edit for the `jscodelab.uk` zone) and `CLOUDFLARE_ACCOUNT_ID`; add `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` if the hostnames sit behind Cloudflare Access. Then run **Environment operations → provision** for each environment and commit the reported database id to `wrangler.jsonc`.
+One-time setup: create GitHub Environments `dev`, `staging` and `production` (protect `production` with required reviewers and main-only deployments), each with secrets `CLOUDFLARE_API_TOKEN` (Workers Scripts, D1 and Workers Routes/custom domain edit for the `jscodelab.uk` zone) and `CLOUDFLARE_ACCOUNT_ID`.
 
 ### Rollback
 

@@ -25,8 +25,8 @@
   ],
 
   // Bindings and vars are not inherited by environments, so each repeats them with its own D1.
-  // A database_id of all zeros means "not provisioned yet": run `pnpm cf provision <env>` and
-  // commit the id it prints.
+  // The D1 ids are committed, non-secret config. All zeros would mean "not provisioned yet": run
+  // `pnpm cf provision <env> --write` locally and commit the result.
   "env": {
     "dev": {
       "name": "sleep-tracker-dev",
@@ -39,7 +39,7 @@
         {
           "binding": "DB",
           "database_name": "sleep-tracker-dev",
-          "database_id": "00000000-0000-0000-0000-000000000000",
+          "database_id": "e089e415-4d56-452a-b676-9a23d3db5ac2",
           "migrations_dir": "migrations",
         },
       ],
@@ -55,7 +55,7 @@
         {
           "binding": "DB",
           "database_name": "sleep-tracker-staging",
-          "database_id": "00000000-0000-0000-0000-000000000000",
+          "database_id": "d1a436da-fede-4417-be6b-7100abd29594",
           "migrations_dir": "migrations",
         },
       ],
@@ -71,7 +71,7 @@
         {
           "binding": "DB",
           "database_name": "sleep-tracker-production",
-          "database_id": "00000000-0000-0000-0000-000000000000",
+          "database_id": "90d6d0a7-fde7-4c8f-bdfa-5361e20a5c70",
           "migrations_dir": "migrations",
         },
       ],

@@ -22,10 +22,10 @@ Preserve these unless the task explicitly changes accepted product direction:
 - Missing data is never zero; statistics expose coverage.
 - Default time display is 24-hour; future AM/PM is presentation only.
 - Profiles are tracked people, not future login identities; preserve household/profile separation.
-- V1 has no application auth and no offline data storage/sync.
+- V1 auth is one application password per remote environment with server-side sessions (no accounts/roles/external IdP); remote environments fail closed. V1 has no offline data storage/sync.
 - Mobile logging must feel like a polished consumer/native app; desktop uses extra space for richer analysis.
 - Color/form are coherent and functional, not decorative clutter.
-- Deterministic seed data and login-free local/E2E operation are required development capabilities.
+- Deterministic seed data and login-free local/E2E operation are required development capabilities; the local identity is loopback + `APP_ENV=local` only and must never reach a remote environment.
 - Automated tests/E2E own disposable isolated D1 state; never read, reset or otherwise depend on a human developer's persisted local database, and never use remote D1 for validation.
 
 ## Intended code ownership

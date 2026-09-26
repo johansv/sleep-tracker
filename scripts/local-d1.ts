@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { todayLocal } from '../src/domain/civil';
 import { demoSeedSql } from './demo-data';
+import { pnpm } from './pnpm';
 
 /**
  * Local-only D1 helpers. Every command passes `--local`; nothing here can reach remote D1.
@@ -17,7 +18,11 @@ const wranglerEnv = { ...process.env, CI: 'true', WRANGLER_SEND_METRICS: 'false'
 
 function wrangler(args: string[], stateDir: string | undefined, quiet: boolean): void {
   const fullArgs = ['exec', 'wrangler', ...args, '--local', ...(stateDir ? ['--persist-to', stateDir] : [])];
-  const result = spawnSync('pnpm', fullArgs, { stdio: quiet ? 'pipe' : 'inherit', env: wranglerEnv, encoding: 'utf8' });
+  const result = spawnSync(...pnpm(fullArgs), {
+    stdio: quiet ? 'pipe' : 'inherit',
+    env: wranglerEnv,
+    encoding: 'utf8',
+  });
   if (result.status !== 0) {
     if (quiet) process.stderr.write(`${result.stdout ?? ''}${result.stderr ?? ''}`);
     throw new Error(`wrangler ${args.join(' ')} failed`);
@@ -29,10 +34,15 @@ export function migrate(stateDir?: string, quiet = false): void {
 }
 
 export function seed(anchor: string = process.env.SEED_ANCHOR ?? todayLocal(), stateDir?: string, quiet = false): void {
-  const dir = mkdtempSync(path.join(tmpdir(), 'sleep-tracker-seed-'));
+  execute(demoSeedSql(anchor), stateDir, quiet);
+}
+
+/** Run a SQL script against the local store (via a temporary file that is always removed). */
+export function execute(sql: string, stateDir?: string, quiet = false): void {
+  const dir = mkdtempSync(path.join(tmpdir(), 'sleep-tracker-sql-'));
   try {
-    const file = path.join(dir, 'seed.sql');
-    writeFileSync(file, demoSeedSql(anchor));
+    const file = path.join(dir, 'script.sql');
+    writeFileSync(file, sql);
     wrangler(['d1', 'execute', 'DB', '--file', file, '--yes'], stateDir, quiet);
   } finally {
     rmSync(dir, { recursive: true, force: true });

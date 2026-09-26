@@ -11,7 +11,7 @@ The product measures time in bed, not actual sleep. It does not know when someon
 
 ## Domain language
 
-- Household: ownership boundary for profiles. V1 has one household and no login UI; the boundary exists for future account/profile authorization.
+- Household: ownership boundary for profiles. V1 has one household and no user accounts; the boundary exists for future account/profile authorization.
 - Profile: a tracked person. Profiles can be active or inactive; inactivation never deletes history.
 - Night: the local calendar date on which the tracked night ends. For a complete session this is the wake-up/get-up date.
 - Bedtime: local date and clock time when the person goes to bed, not when they actually fall asleep.
@@ -146,11 +146,13 @@ V1 is an installable PWA with appropriate manifest, icons/metadata and standalon
 
 ## Authentication and future accounts
 
-V1 has no application-level authentication or authorization. This is a scope decision, not a waiver of normal security.
+V1 protects each deployed environment with one shared application password. There are no user accounts, usernames, registration, roles, email flows or external identity providers; profiles remain tracked people, not login identities.
 
+- Opening a deployed app shows a simple sign-in screen asking for the household password. After signing in, the device stays signed in for up to 30 days of inactivity (use extends it); People offers Sign out for this device.
+- Changing the password signs out every device; the next request on any device returns to the sign-in screen and drops the data shown.
+- Without a configured password a deployed environment refuses every sign-in and all data access (fail closed). No data is readable or writable without signing in.
 - Local development and automated UI evaluation must require no interactive login.
 - The architecture must allow future authenticated accounts to administer/access one or more household profiles without replacing the profile/session model.
-- Real personal data must not intentionally be exposed through a public deployment without an appropriate access-control layer. External deployment protection can be used independently before application auth exists.
 
 ## Deterministic example data
 
@@ -170,7 +172,7 @@ Selected fixture periods should have testable expected aggregates.
 
 ## V1 non-goals
 
-Unless later accepted requirements change scope, V1 excludes wearable integration, automatic sleep detection, actual asleep-time estimation, sleep stages, naps as a separate model, health/medical recommendations, notifications, application login/auth, multi-household management UI, offline-first synchronization and permanent audit/soft-delete history.
+Unless later accepted requirements change scope, V1 excludes wearable integration, automatic sleep detection, actual asleep-time estimation, sleep stages, naps as a separate model, health/medical recommendations, notifications, multi-user accounts/roles or external sign-in, multi-household management UI, offline-first synchronization and permanent audit/soft-delete history.
 
 ## V1 completion boundary
 

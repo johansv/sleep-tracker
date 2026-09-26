@@ -47,17 +47,17 @@ There are no per-PR Workers, databases or hostnames; a deployment replaces what 
 
 ### Configuration
 
-`wrangler.jsonc` is the source of truth. Its top level is the local development/test configuration (placeholder D1 id, `APP_ENV=local`); `env.dev`, `env.staging` and `env.production` each repeat the non-inheritable bindings (`DB`, `vars.APP_ENV`, version metadata) with their own D1 database and a custom-domain route. An all-zero `database_id` means the environment is not provisioned yet.
+`wrangler.jsonc` is the source of truth. Its top level is the local development/test configuration (placeholder D1 id, `APP_ENV=local`); `env.dev`, `env.staging` and `env.production` each repeat the non-inheritable bindings (`DB`, `vars.APP_ENV`, version metadata) with their own D1 database and a custom-domain route. The generated D1 ids are ordinary, non-secret configuration and are committed; an all-zero `database_id` means the environment is not provisioned yet, and every command that needs it refuses to run.
 
 The environment is always selected explicitly — `CLOUDFLARE_ENV=<env>` for the Cloudflare Vite plugin build and `--env <env>` for Wrangler D1 commands — never inferred from the checked-out branch. Tooling refuses to deploy a build whose generated config does not name the expected Worker, D1 database and `APP_ENV`.
 
 ### Command surface
 
-`pnpm cf <command> <env>` (`scripts/cloudflare.ts`, rules in `scripts/remote/policy.ts`) is the only implementation of remote operations; local use and GitHub Actions call the same commands.
+`pnpm cf <command> <env>` (`scripts/cloudflare.ts`, rules in `scripts/remote/policy.ts`) is the only implementation of remote operations; local use and GitHub Actions call the same commands. `pnpm auth <command> <env>` (`scripts/auth.ts`) administers the application password (see Application auth).
 
 | Command                                | dev / staging | production | What it does                                                                   |
 | -------------------------------------- | ------------- | ---------- | ------------------------------------------------------------------------------ |
-| `provision <env> [--write]`            | ✓             | ✓          | Create the D1 database if missing; report (or write) the id for wrangler.jsonc |
+| `provision <env> [--write]`            | ✓             | ✓          | Local bootstrap: create D1 if missing; report (or write) its wrangler.jsonc id |
 | `status <env>`                         | ✓             | ✓          | Health/revision/source/Worker version, active deployment, pending migrations   |
 | `migrate <env>`                        | ✓             | ✓          | Apply committed migrations to the remote D1                                    |
 | `seed <env>`                           | ✓             | refused    | Idempotently (re)load the deterministic demo data (`SEED_ANCHOR` pins it)      |
@@ -65,6 +65,8 @@ The environment is always selected explicitly — `CLOUDFLARE_ENV=<env>` for the
 | `deploy-only <env>`                    | ✓             | main only  | Clean build + deploy of `HEAD` without migrations (exceptional)                |
 | `release <env>`                        | ✓             | main only  | Validation evidence → migrate → clean build + deploy → smoke                   |
 | `smoke <env>`                          | ✓             | ✓          | Revision-aware remote health check                                             |
+| `pnpm auth set-password <env>`         | ✓             | ✓          | Set/rotate the application password; ends every session                        |
+| `pnpm auth verify <env>`               | ✓             | ✓          | Exercise the deployed sign-in boundary end to end, leaving no data behind      |
 
 Seed and reset are programmatic refusals for production, not conventions. A release never seeds; seeding is a separate explicit step. Remote seed uses the stable canonical anchor `2026-09-24` by default so repeated runs are reproducible; `--anchor today` is an explicit opt-in to a moving dataset. Destructive commands print the target environment and database before mutating and act only on remote D1 (`--remote --env`), never on the local developer or test stores.
 
@@ -74,9 +76,11 @@ Seed and reset are programmatic refusals for production, not conventions. A rele
 
 1. requires a clean working tree and records the exact `HEAD` SHA (production: the SHA must be on `main`);
 2. requires validation evidence for that exact SHA: only a successful **push** CI run for the SHA is reusable because GitHub `pull_request` CI checks the synthetic merge ref by default. PR merge-ref CI remains valuable integration evidence but is not treated as exact-head release evidence. Without reusable exact-SHA evidence, release runs `pnpm verify` on the selected revision before deploying;
-3. applies pending migrations — a failed migration stops before any code is deployed;
+3. applies pending migrations — a failed migration stops before any code is deployed — and refuses to continue while the environment has no application password;
 4. performs a clean `CLOUDFLARE_ENV=<env>` production build into `.deploy/<env>` and deploys it with `APP_REVISION`/`APP_SOURCE` vars and the SHA as Worker version tag/message, so each Worker version traces to its source revision;
-5. smoke-checks `https://<host>/api/health` until it reports the expected environment, the exact revision, a reachable D1 binding and the newest committed migration, and the app page is served. Failure is reported with the environment and revision; success is never claimed without it.
+5. smoke-checks `https://<host>/api/health` until it reports the expected environment, the exact revision, a reachable D1 binding and the newest committed migration, the app page is served, and unauthenticated `GET /api/profiles` is refused with 401. Failure is reported with the environment and revision; success is never claimed without it.
+
+Smoke deliberately holds no credentials. Signed-in behavior is verified with `pnpm auth verify <env>` (see Bootstrap), which needs the password.
 
 `GET /api/health` is the safe deployment signal: environment, revision, source label, Worker version metadata and D1 reachability/latest applied migration, with no secrets or application data.
 
@@ -94,15 +98,23 @@ Manually triggered workflows provide the whole remote lifecycle without a develo
 
 - **Deploy revision (dev/staging)** (`deploy-revision.yml`) — choose `dev` or `staging`, a same-repository PR number (its current head; fork PRs are refused) or a branch (its tip at workflow start), and `release` (default) or `deploy-only`, optionally seeding afterwards. The SHA is resolved once and used throughout. The job summary — and for PRs a single upserted PR comment — shows source, SHA, environment, URL and Worker version. It cannot target production.
 - **Release production** (`release-production.yml`) — run from `main`; releases the main tip or a given commit on main. No seed/reset.
-- **Environment operations** (`environment-operations.yml`) — `status`, `provision`, `migrate`, `seed`, `reset`, `reset-and-seed` for a chosen environment; migrations/seed come from the branch the workflow runs from, production only from `main`; seed/reset refused for production. Reset requires typing the environment name.
+- **Environment operations** (`environment-operations.yml`) — `doctor`, `status`, `migrate`, `seed`, `reset`, `reset-and-seed` for a chosen environment; migrations/seed come from the branch the workflow runs from, production only from `main`; seed/reset refused for production. Reset requires typing the environment name. Provisioning and password administration are deliberately not offered (see Bootstrap).
 
 Deploy jobs run in the reusable `cloudflare-deploy.yml`. Every mutating job uses the GitHub Environment of its target (`dev`, `staging`, `production`) for `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID` secrets and protection rules, and the shared concurrency group `cloudflare-<env>` so releases, migrations and resets never race on one environment. Protect `production` with required reviewers and a `main`-only deployment branch policy. Production deployment is never automatic.
 
-Credential trust boundary: a deployment executes the selected revision's own install, build and deploy tooling, so only revisions from this repository are deployable — `pnpm cf resolve` refuses fork PRs (the PR head repository must be this repository). Cloudflare/Access secrets are scoped to the individual steps that talk to Cloudflare, never job-wide: checkout, `pnpm install` and a fallback `pnpm verify` run without them, and `release --verified` then records that validation instead of re-running it. Deploying arbitrary external PRs would need a trusted control plane that never runs PR-owned tooling with credentials; that is out of scope.
+Credential trust boundary: a deployment executes the selected revision's own install, build and deploy tooling, so only revisions from this repository are deployable — `pnpm cf resolve` refuses fork PRs (the PR head repository must be this repository). Cloudflare secrets are scoped to the individual steps that talk to Cloudflare, never job-wide: checkout, `pnpm install` and a fallback `pnpm verify` run without them, and `release --verified` then records that validation instead of re-running it. Deploying arbitrary external PRs would need a trusted control plane that never runs PR-owned tooling with credentials; that is out of scope.
 
 ### Bootstrap versus routine operation
 
-Bootstrap is one-time per environment: `provision` creates the D1 database and reports its id, which is committed to `wrangler.jsonc` (locally `--write` edits the file; in Actions the id appears in the job summary). The custom domain is attached by the first deploy (the `jscodelab.uk` zone must be in the same Cloudflare account). Everything after that — status, migrate, seed/reset where allowed, deploy-only and release — runs from GitHub Actions or locally with identical behavior.
+Bootstrap is one-time per environment and runs locally with the developer's existing Wrangler authentication (`pnpm exec wrangler whoami`; no extra API token is needed):
+
+1. `pnpm cf provision <env> --write` creates (or finds) the D1 database and writes its id into `wrangler.jsonc`; commit it. Provisioning refuses to run in GitHub Actions — there is exactly one bootstrap path.
+2. `pnpm cf migrate <env>` applies the schema, including the auth tables.
+3. `pnpm auth set-password <env>` sets a strong, environment-unique password before the first application deployment (`release` and `deploy-only` refuse an environment without one).
+4. `pnpm cf release <env>` deploys (production: a revision on `main`); dev/staging may then be seeded with `pnpm cf seed <env>`. Production is never seeded or reset.
+5. `pnpm auth verify <env>` signs in through the real HTTPS boundary and checks denial, sign-in, a read, a create/read/delete mutation on a temporary profile (removed again, cleanup confirmed), sign-out and refusal of the ended session.
+
+The custom domain is attached by the first deploy (the `jscodelab.uk` zone must be in the same Cloudflare account); no other dashboard configuration is needed. Everything after bootstrap — status, migrate, seed/reset where allowed, deploy-only and release — runs from GitHub Actions or locally with identical behavior, using the committed D1 ids. Rotating the password later is `pnpm auth set-password <env>` followed by `pnpm auth verify <env>`.
 
 ### Rollback and database recovery
 
@@ -111,9 +123,18 @@ These are separate concerns.
 - **Code rollback**: `pnpm exec wrangler rollback --name sleep-tracker-<env> [<version-id>]` (or the dashboard) restores an earlier Worker version; `status` and the version tag/message identify the revision each version came from. This does not touch D1: only roll back code that is compatible with the current schema, otherwise roll forward with a fix.
 - **Database recovery**: for genuine data/schema incidents use D1 Time Travel, naming the environment's database explicitly — `pnpm exec wrangler d1 time-travel info sleep-tracker-<env>` then `… d1 time-travel restore sleep-tracker-<env> --timestamp=<time>`. Restores are deliberate manual operations; ordinary releases never roll back D1.
 
-### Access control
+### Application auth
 
-Deployment plumbing is not an access-control boundary. Before production holds real personal data, put the hostnames behind an appropriate boundary (for example Cloudflare Access); smoke/status then authenticate with an Access service token via the optional `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` environment secrets. No application auth bypass exists or may be added for deployment tooling.
+The application owns its access boundary; no Cloudflare Access/Zero Trust policy, external identity provider, JWT infrastructure or user/role model is involved. Implementation: `src/worker/auth.ts`, `src/worker/password.ts`, `migrations/0002_auth.sql`.
+
+- **One password per environment.** `auth_password` holds a single salted PBKDF2-HMAC-SHA-256 verifier (100 000 iterations — the Workers runtime maximum — and a random 16-byte salt), never plaintext. No row means auth is not configured: sign-in answers 503 and every data route 401.
+- **Opaque server-side sessions.** Sign-in creates a random 256-bit token; D1 stores only its SHA-256. The browser holds it in an `HttpOnly`, `SameSite=Strict`, `Secure` `__Host-sleep_session` cookie. Sessions last 30 days and slide forward when used in their second half. Sign-out deletes the session and clears the cookie. Remote sign-in over plain HTTP is refused.
+- **Protected by default.** Every `/api` route requires a session except `GET /api/health`, `GET /api/auth/session` and `POST /api/auth/login|logout`; authentication runs before any resource access. Static SPA assets are public and contain no data. The existing protections (runtime validation, bounded bodies, same-origin check for mutations — including sign-in) still apply.
+- **Login throttling.** At most 10 failed sign-ins per client address (hashed `CF-Connecting-IP`) per 15 minutes, then 429. Together with the PBKDF2 cost this is proportionate for a single-password app, without letting a remote attacker lock the owner out globally.
+- **Rotation.** `pnpm auth set-password <env>` (hidden interactive entry, or `--password-stdin` for non-interactive use) hashes locally and writes the verifier to that environment's remote D1 in one script that also deletes every session and throttle entry. As a second guard, a session is valid only if it was created after the current password's `updated_at`. Consequence: rotating signs out every device, including the operator's; recovery from a lost password is simply setting a new one with Cloudflare credentials. `pnpm cf reset` drops the auth tables, so a reset environment refuses sign-in until the password is set again.
+- **Secret hygiene.** The plaintext is never a command argument, log line, repository file or CI artifact; only the verifier reaches D1 (via a private temporary file that is removed immediately). GitHub Actions never handles the application password.
+
+`GET /api/health` stays public for deployment checks and reveals no data or secrets.
 
 ## Intended repository map
 
@@ -163,6 +184,8 @@ Sleep sessions:
 - wake_time_local: nullable local date-time with no timezone/offset
 - created_at
 - updated_at
+
+Auth tables (`auth_password`, `auth_sessions`, `auth_login_failures`) are separate from the product schema and hold only verifiers/hashes; see Application auth.
 
 Use stable opaque IDs, enforce D1 foreign keys, and enforce one logical session per profile + night_date. Technical created/updated timestamps may use normal machine timestamps; they do not define sleep semantics.
 
@@ -215,7 +238,7 @@ Expected capabilities, without freezing exact URLs prematurely:
 - list/create/update/delete sleep sessions, filterable by profile/date range
 - statistics endpoint for period/profile selectors
 
-V1 has no auth middleware. Structure request handling so future authentication/authorization can be inserted before resource access without rewriting domain logic.
+Authentication (see Application auth) runs in the router before any protected handler; `src/worker/context.ts` maps the authenticated caller to the household it may access (today always the single default household). Future account auth replaces that mapping without rewriting routes or domain logic.
 
 ## Client shape
 
@@ -282,7 +305,7 @@ Developer data and automated-test data are separate trust domains.
 
 Use Wrangler/local-runtime mechanisms such as explicit local persistence directories where useful; the invariant is isolation, not a specific folder name.
 
-If auth is added later, local/E2E environments retain a deterministic development identity/auth strategy with no real credentials or interactive login, and that bypass must be impossible to enable accidentally in production.
+Local development and tests use a deterministic local identity instead of signing in. The Worker grants it only when both the deployment says `APP_ENV=local` (the top-level `wrangler.jsonc` configuration; every remote env sets its own name and `pnpm cf` refuses builds that do not) and the request is addressed to a loopback host (`localhost`, `127.0.0.1`, `[::1]`). A remote environment therefore cannot enable it by configuration or by any request header. A local request can opt _out_ with `x-sleep-tracker-auth: enforce`; the E2E auth spec does that, using a fixed test-only password that `pnpm test:e2e` writes into its disposable database. Integration tests exercise the boundary as a remote environment would see it (`APP_ENV=production` on an HTTPS host). Opening the local dev server from another device (a LAN address) is not loopback and therefore requires a password in that local database.
 
 ## Testing and UI validation
 
@@ -322,9 +345,9 @@ Merge, release and deployment are separate consequential actions and are not imp
 
 ## Security posture
 
-V1 has no application auth, but still requires parameterized D1 statements, runtime validation, safe browser errors, no committed secrets and appropriate environment-specific Cloudflare configuration. The API also bounds JSON request bodies (safe `413`), rejects browser mutations whose `Origin` differs from the app's own origin (requests without `Origin` are allowed) and sends `X-Content-Type-Options: nosniff` on JSON responses.
+Remote environments are protected by the application auth above and fail closed without a configured password. Beyond that, V1 requires parameterized D1 statements, runtime validation, safe browser errors, no committed secrets and appropriate environment-specific Cloudflare configuration. The API also bounds JSON request bodies (safe `413`), rejects browser mutations whose `Origin` differs from the app's own origin (requests without `Origin` are allowed) and sends `X-Content-Type-Options: nosniff` on JSON responses.
 
-A public deployment containing real personal data requires an appropriate access-control boundary even before future application-level auth exists. Agent convenience must never become a production auth bypass.
+Agent convenience must never become a remote auth bypass: the only login-free path is the loopback-only local identity, and deployment tooling (smoke/status) holds no application credentials.
 
 ## Documentation authority
 

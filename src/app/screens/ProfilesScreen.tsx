@@ -1,5 +1,5 @@
 import { useState, type CSSProperties, type FormEvent } from 'react';
-import { Check, History, Info, Pencil, UserPlus, Users } from 'lucide-react';
+import { Check, History, Info, LogOut, Pencil, UserPlus, Users } from 'lucide-react';
 import { api } from '../../api/client';
 import { invalidateAll } from '../../api/query';
 import { ProfileAvatar } from '../../components/ProfileAvatar';
@@ -10,6 +10,7 @@ import { StateMessage } from '../../design/StateMessage';
 import { SectionHeader, Surface } from '../../design/Surface';
 import { useToast } from '../../design/Toast';
 import { PROFILE_COLORS, type Profile, type ProfileColor } from '../../shared/api';
+import { useAuth } from '../AuthGate';
 import { useProfiles } from '../ProfileContext';
 import { navigate } from '../router';
 import { ErrorState, PageHeader } from './common';
@@ -128,23 +129,28 @@ export function ProfilesScreen() {
               </>
             )}
           </div>
-          <Surface className={styles.about} aria-labelledby="about-title">
-            <div className={styles.aboutIcon} aria-hidden="true">
-              <Info />
-            </div>
-            <h2 id="about-title" className={styles.aboutTitle}>
-              About the numbers
-            </h2>
-            <ul className={styles.aboutList}>
-              <li>Sleep Tracker measures time in bed — from going to bed until getting up — not actual sleep.</li>
-              <li>Times are local wall-clock times shown in 24-hour format. A night belongs to the date you get up.</li>
-              <li>
-                Nights missing a bedtime or wake-up stay editable but are left out of statistics. Days without records
-                are never counted as zero.
-              </li>
-              <li>Data is stored online. The app needs a connection to load and save nights.</li>
-            </ul>
-          </Surface>
+          <div className={styles.aside}>
+            <Surface className={styles.about} aria-labelledby="about-title">
+              <div className={styles.aboutIcon} aria-hidden="true">
+                <Info />
+              </div>
+              <h2 id="about-title" className={styles.aboutTitle}>
+                About the numbers
+              </h2>
+              <ul className={styles.aboutList}>
+                <li>Sleep Tracker measures time in bed — from going to bed until getting up — not actual sleep.</li>
+                <li>
+                  Times are local wall-clock times shown in 24-hour format. A night belongs to the date you get up.
+                </li>
+                <li>
+                  Nights missing a bedtime or wake-up stay editable but are left out of statistics. Days without records
+                  are never counted as zero.
+                </li>
+                <li>Data is stored online. The app needs a connection to load and save nights.</li>
+              </ul>
+            </Surface>
+            <SignOut />
+          </div>
         </div>
       )}
       <ProfileEditorSheet
@@ -316,5 +322,32 @@ function ProfileForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+/** Ends this device's session. The local development identity has no session to end. */
+function SignOut() {
+  const { method, signOut } = useAuth();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  if (method !== 'session') return null;
+  return (
+    <Button
+      variant="ghost"
+      block
+      icon={<LogOut />}
+      busy={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          await signOut();
+        } catch (error) {
+          setBusy(false);
+          toast({ tone: 'error', message: error instanceof Error ? error.message : 'Could not sign out.' });
+        }
+      }}
+    >
+      Sign out
+    </Button>
   );
 }

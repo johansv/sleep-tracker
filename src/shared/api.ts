@@ -80,3 +80,10 @@ export interface HealthResponse {
   workerVersion: { id: string; tag: string | null; timestamp: string | null } | null;
   database: { ok: boolean; latestMigration: string | null };
 }
+
+/** `GET /api/auth/session`, and the result of login/logout. */
+export interface AuthSessionResponse {
+  authenticated: boolean;
+  /** `session` after password sign-in; `local` for the loopback-only development/test identity. */
+  method: 'session' | 'local' | null;
+}
