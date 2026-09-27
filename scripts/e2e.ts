@@ -2,12 +2,16 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
-import { migrate, seed } from './local-d1';
+import { hashPassword, setPasswordSql } from '../src/worker/password';
+import { execute, migrate, seed } from './local-d1';
+import { pnpm } from './pnpm';
 
 /**
  * Self-contained E2E run (`pnpm test:e2e [playwright args]`):
  *   1. create a disposable, per-run D1 state directory under .e2e-state/ (git-ignored),
- *   2. apply migrations and load the deterministic demo data at a fixed anchor date,
+ *   2. apply migrations, load the deterministic demo data at a fixed anchor date and set the
+ *      fixed test-only app password (E2E_PASSWORD; journeys use the loopback local identity and
+ *      only the auth spec opts into real sign-in),
  *   3. build the app into that directory,
  *   4. run Playwright, which serves that build with `wrangler dev` (local Workers runtime) against
  *      that state on free ports, and finally remove the directory.
@@ -18,6 +22,8 @@ import { migrate, seed } from './local-d1';
  */
 
 export const E2E_ANCHOR = '2026-09-24';
+/** Test fixture, not a secret: it only ever exists in this run's disposable local database. */
+export const E2E_PASSWORD = 'e2e-only-password';
 
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -42,16 +48,17 @@ try {
   console.log(`E2E state: ${path.relative(process.cwd(), stateDir)}`);
   migrate(stateDir, true);
   seed(E2E_ANCHOR, stateDir, true);
+  execute(setPasswordSql(await hashPassword(E2E_PASSWORD)), stateDir, true);
 
   const env = { ...process.env, SLEEP_TRACKER_STATE_DIR: stateDir };
-  const build = spawnSync('pnpm', ['exec', 'vite', 'build', '--outDir', outDir, '--logLevel', 'warn'], {
+  const build = spawnSync(...pnpm(['exec', 'vite', 'build', '--outDir', outDir, '--logLevel', 'warn']), {
     stdio: 'inherit',
     env,
   });
   if (build.status !== 0) throw new Error('Build failed');
 
   const [port, inspectorPort] = [await freePort(), await freePort()];
-  const result = spawnSync('pnpm', ['exec', 'playwright', 'test', ...process.argv.slice(2)], {
+  const result = spawnSync(...pnpm(['exec', 'playwright', 'test', ...process.argv.slice(2)]), {
     stdio: 'inherit',
     env: {
       ...env,
@@ -60,6 +67,7 @@ try {
       E2E_OUT_DIR: outDir,
       E2E_RUN_ID: runId,
       E2E_ANCHOR,
+      E2E_PASSWORD,
     },
   });
   status = result.status ?? 1;

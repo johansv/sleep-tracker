@@ -3,6 +3,7 @@ import { ChartColumn, CalendarDays, MoonStar, Users, WifiOff } from 'lucide-reac
 import { useOnline } from '../api/connectivity';
 import { invalidateAll } from '../api/query';
 import { ToastProvider } from '../design/Toast';
+import { AuthGate } from './AuthGate';
 import { NightEditorProvider } from './NightEditor';
 import { ProfileProvider } from './ProfileContext';
 import { Link, usePathname, type RoutePath } from './router';
@@ -36,11 +37,13 @@ const SCREENS: Record<RoutePath, ComponentType> = {
 export function App() {
   return (
     <ToastProvider>
-      <ProfileProvider>
-        <NightEditorProvider>
-          <Shell />
-        </NightEditorProvider>
-      </ProfileProvider>
+      <AuthGate>
+        <ProfileProvider>
+          <NightEditorProvider>
+            <Shell />
+          </NightEditorProvider>
+        </ProfileProvider>
+      </AuthGate>
     </ToastProvider>
   );
 }

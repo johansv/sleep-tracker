@@ -23,6 +23,12 @@ export function invalidateAll(): void {
   for (const listener of listeners) listener();
 }
 
+/** Forget every loaded resource (after signing out) so no data outlives the session on screen. */
+export function clearAll(): void {
+  cache.clear();
+  invalidateAll();
+}
+
 export type QueryState<T> =
   | { status: 'loading'; data?: undefined; error?: undefined }
   | { status: 'success'; data: T; error?: undefined; refreshing: boolean }

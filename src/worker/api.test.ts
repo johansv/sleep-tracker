@@ -1,52 +1,25 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import path from 'node:path';
-import { Miniflare } from 'miniflare';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { disposeDatabases, freshDatabase } from '../test/d1';
 import type { HealthResponse, Profile, SessionListResponse, SleepSession, StatsResponse } from '../shared/api';
 import { handleRequest } from './index';
 import type { Env } from './routes';
 
 /**
  * API integration tests against a real (in-memory, test-owned) D1 database. A fresh database is
- * created for every test; nothing touches the developer's persisted local store.
+ * created for every test; nothing touches the developer's persisted local store. These act as the
+ * loopback-only local identity (`APP_ENV=local` + localhost); auth.test.ts covers sign-in.
  */
 
-const MIGRATIONS_DIR = path.resolve(__dirname, '../../migrations');
-let mf: Miniflare | undefined;
 let db: D1Database;
-
-async function freshDatabase(): Promise<D1Database> {
-  await mf?.dispose();
-  mf = new Miniflare({
-    modules: true,
-    script: 'export default { fetch() { return new Response(null, { status: 404 }); } }',
-    d1Databases: { DB: `test-${crypto.randomUUID()}` },
-  });
-  const database = (await mf.getD1Database('DB')) as unknown as D1Database;
-  for (const file of readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith('.sql'))
-    .sort()) {
-    const sql = readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8')
-      .split('\n')
-      .filter((line) => !line.trimStart().startsWith('--'))
-      .join('\n');
-    const statements = sql
-      .split(/;\s*(?:\n|$)/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    await database.batch(statements.map((s) => database.prepare(s)));
-  }
-  return database;
-}
 
 async function call<T = unknown>(method: string, url: string, body?: unknown): Promise<{ status: number; body: T }> {
   const response = await handleRequest(
-    new Request(`http://local${url}`, {
+    new Request(`http://localhost${url}`, {
       method,
       headers: body === undefined ? undefined : { 'content-type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
-    { DB: db },
+    { DB: db, APP_ENV: 'local' },
   );
   const text = await response.text();
   return { status: response.status, body: (text ? JSON.parse(text) : undefined) as T };
@@ -62,9 +35,7 @@ beforeEach(async () => {
   db = await freshDatabase();
 });
 
-afterAll(async () => {
-  await mf?.dispose();
-});
+afterAll(disposeDatabases);
 
 describe('profiles API', () => {
   it('creates, lists, renames and deactivates profiles', async () => {
@@ -200,12 +171,12 @@ describe('sessions API', () => {
     expect((await call('GET', '/api/nope')).status).toBe(404);
     expect((await call('PATCH', '/api/sessions')).status).toBe(405);
     const bad = await handleRequest(
-      new Request('http://local/api/profiles', {
+      new Request('http://localhost/api/profiles', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: '{',
       }),
-      { DB: db },
+      { DB: db, APP_ENV: 'local' },
     );
     expect(bad.status).toBe(400);
     expect(await bad.json()).toEqual({ error: { code: 'invalid_json', message: 'Request body is not valid JSON.' } });
@@ -246,18 +217,18 @@ describe('stats API', () => {
 describe('HTTP hardening', () => {
   const post = (body: string, headers: Record<string, string> = {}) =>
     handleRequest(
-      new Request('http://local/api/profiles', {
+      new Request('http://localhost/api/profiles', {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...headers },
         body,
       }),
-      { DB: db },
+      { DB: db, APP_ENV: 'local' },
     );
 
   it('marks JSON responses nosniff', async () => {
-    const ok = await handleRequest(new Request('http://local/api/profiles'), { DB: db });
+    const ok = await handleRequest(new Request('http://localhost/api/profiles'), { DB: db, APP_ENV: 'local' });
     expect(ok.headers.get('x-content-type-options')).toBe('nosniff');
-    const error = await handleRequest(new Request('http://local/api/nope'), { DB: db });
+    const error = await handleRequest(new Request('http://localhost/api/nope'), { DB: db, APP_ENV: 'local' });
     expect(error.headers.get('x-content-type-options')).toBe('nosniff');
   });
 
@@ -269,13 +240,13 @@ describe('HTTP hardening', () => {
       error: { code: 'payload_too_large', message: 'Request body is too large.' },
     });
     const streamed = await handleRequest(
-      new Request('http://local/api/profiles', {
+      new Request('http://localhost/api/profiles', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: new Blob([big]).stream(),
         duplex: 'half',
       } as RequestInit),
-      { DB: db },
+      { DB: db, APP_ENV: 'local' },
     );
     expect(streamed.status).toBe(413);
     expect((await call<{ profiles: Profile[] }>('GET', '/api/profiles')).body.profiles).toHaveLength(0);
@@ -286,14 +257,12 @@ describe('HTTP hardening', () => {
     const cross = await post(payload, { origin: 'https://evil.example' });
     expect(cross.status).toBe(403);
     expect(((await cross.json()) as { error: { code: string } }).error.code).toBe('cross_origin');
-    expect((await post(payload, { origin: 'http://local' })).status).toBe(201);
+    expect((await post(payload, { origin: 'http://localhost' })).status).toBe(201);
     expect((await post(payload)).status).toBe(201);
     // Reads are not affected by Origin.
     const read = await handleRequest(
-      new Request('http://local/api/profiles', { headers: { origin: 'https://evil.example' } }),
-      {
-        DB: db,
-      },
+      new Request('http://localhost/api/profiles', { headers: { origin: 'https://evil.example' } }),
+      { DB: db, APP_ENV: 'local' },
     );
     expect(read.status).toBe(200);
   });
@@ -301,7 +270,7 @@ describe('HTTP hardening', () => {
 
 describe('health API', () => {
   async function health(env: Omit<Env, 'DB'> & { DB?: D1Database } = {}) {
-    const response = await handleRequest(new Request('http://local/api/health'), { DB: db, ...env });
+    const response = await handleRequest(new Request('http://localhost/api/health'), { DB: db, ...env });
     return { status: response.status, body: (await response.json()) as HealthResponse };
   }
 

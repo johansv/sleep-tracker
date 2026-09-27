@@ -3,11 +3,23 @@ import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmS
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { unstable_readConfig } from 'wrangler';
 import { Temporal } from 'temporal-polyfill';
 import { todayLocal } from '../src/domain/civil';
 import type { HealthResponse } from '../src/shared/api';
 import { demoSeedSql } from './demo-data';
+import {
+  childEnv,
+  CONFIG,
+  d1Args,
+  d1Query,
+  git,
+  passwordConfigured,
+  readEnvironmentConfig,
+  requireCloudflareAuth,
+  requireProvisioned,
+  runPnpm,
+  wrangler,
+} from './remote/cli';
 import {
   assertOperationAllowed,
   CI_WORKFLOW_PATH,
@@ -38,7 +50,8 @@ import {
  * Remote Cloudflare operations (`pnpm cf <command> …`). Local use and GitHub Actions both call
  * this; see docs/ARCHITECTURE.md → Remote environments and README → Deploying.
  *
- *   provision <env> [--write]        create the env's D1 database (if missing), report/write its id
+ *   provision <env> [--write]        bootstrap (local only): create the env's D1 database if missing,
+ *                                    report/write its id into wrangler.jsonc (commit it)
  *   doctor <env>                     read-only config/auth/D1 preflight
  *   status <env>                     deployed revision, Worker version and D1 migration state
  *   status-all                       status for all three environments
@@ -52,80 +65,19 @@ import {
  *   evidence [sha]                   is there sufficient green CI for the revision?
  *   resolve <pr|branch> <ref>        exact commit SHA of a PR head / branch tip (GitHub)
  *
+ * The application password is managed by `pnpm auth` (scripts/auth.ts).
  * Every remote command names its environment explicitly; nothing is inferred from the checked-out
  * branch, and nothing here touches the local developer or test D1 stores.
  */
 
-const CONFIG = 'wrangler.jsonc';
 const MIGRATIONS_DIR = 'migrations';
 const SMOKE_ATTEMPTS = 36;
 const SMOKE_INTERVAL_MS = 5_000;
 
-const childEnv = { ...process.env, CI: 'true', WRANGLER_SEND_METRICS: 'false' };
-
 const log = (message: string) => console.log(`[cf] ${message}`);
-
-function run(command: string, args: string[], options: { capture?: boolean; env?: NodeJS.ProcessEnv } = {}): string {
-  const result = spawnSync(command, args, {
-    stdio: options.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit',
-    env: options.env ?? childEnv,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  if (result.status !== 0) {
-    if (options.capture) process.stderr.write(`${result.stdout ?? ''}${result.stderr ?? ''}`);
-    throw new DeployError(`\`${[command, ...args].join(' ')}\` failed (exit ${result.status ?? 'signal'}).`);
-  }
-  return result.stdout ?? '';
-}
-
-const wrangler = (args: string[], capture = false, env?: NodeJS.ProcessEnv) =>
-  run('pnpm', ['exec', 'wrangler', ...args], { capture, env });
-
-/** Remote D1 command against exactly this environment's binding. */
-const d1Args = (env: EnvironmentName) => ['DB', '--remote', '--env', env, '-c', CONFIG];
-
-function git(args: string[]): string {
-  return run('git', args, { capture: true }).trim();
-}
 
 // ---------------------------------------------------------------------------------------------
 // Preconditions
-
-function readEnvironmentConfig(env: EnvironmentName) {
-  const config = unstable_readConfig({ config: CONFIG, env });
-  const database = config.d1_databases.find((d: { binding: string }) => d.binding === 'DB') as
-    { database_name?: string; database_id?: string } | undefined;
-  const expected = ENVIRONMENTS[env];
-  if (config.name !== expected.worker || database?.database_name !== expected.database || config.vars.APP_ENV !== env) {
-    throw new DeployError(
-      `${CONFIG} env.${env} does not match the expected Worker "${expected.worker}", D1 "${expected.database}" and APP_ENV "${env}".`,
-    );
-  }
-  return { databaseId: database.database_id ?? PLACEHOLDER_DATABASE_ID };
-}
-
-function requireProvisioned(env: EnvironmentName): string {
-  const { databaseId } = readEnvironmentConfig(env);
-  if (databaseId === PLACEHOLDER_DATABASE_ID) {
-    throw new DeployError(
-      `The ${env} D1 database is not configured in ${CONFIG} yet. Run \`pnpm cf provision ${env} --write\` and commit the id.`,
-    );
-  }
-  return databaseId;
-}
-
-let authenticated = false;
-function requireCloudflareAuth(): void {
-  if (authenticated) return;
-  const result = spawnSync('pnpm', ['exec', 'wrangler', 'whoami', '--json'], { env: childEnv, encoding: 'utf8' });
-  if (result.status !== 0) {
-    throw new DeployError(
-      'Cloudflare authentication is missing. Locally run `pnpm exec wrangler login`; in CI set the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets.',
-    );
-  }
-  authenticated = true;
-}
 
 function currentRevision(expected: string | undefined): string {
   if (git(['status', '--porcelain', '--untracked-files=normal'])) {
@@ -211,10 +163,8 @@ async function requireValidationEvidence(sha: string): Promise<string> {
   }
   log(`No complete green CI run found for ${sha}; running \`pnpm verify\` on it before deploying.`);
   // Tests never see deployment credentials; they only use local, disposable D1 state.
-  const testEnv = Object.fromEntries(
-    Object.entries(childEnv).filter(([key]) => !/^(CLOUDFLARE_|CF_ACCESS_)/.test(key)),
-  );
-  run('pnpm', ['verify'], { env: testEnv });
+  const testEnv = Object.fromEntries(Object.entries(childEnv).filter(([key]) => !key.startsWith('CLOUDFLARE_')));
+  runPnpm(['verify'], { env: testEnv });
   return 'pnpm verify (this run)';
 }
 
@@ -264,21 +214,10 @@ function reset(env: EnvironmentName, confirm: string | undefined, andSeed: boole
   }
   requireCloudflareAuth();
   log(`DESTRUCTIVE: dropping every table in D1 ${ENVIRONMENTS[env].database} (${databaseId}) of ${env}.`);
-  const listing = wrangler(
-    [
-      'd1',
-      'execute',
-      ...d1Args(env),
-      '--json',
-      '--command',
-      "SELECT type, name FROM sqlite_master WHERE type IN ('table', 'view') AND substr(name, 1, 7) <> 'sqlite_' AND substr(name, 1, 4) <> '_cf_'",
-    ],
-    true,
+  const rows = d1Query<{ type: string; name: string }>(
+    env,
+    "SELECT type, name FROM sqlite_master WHERE type IN ('table', 'view') AND substr(name, 1, 7) <> 'sqlite_' AND substr(name, 1, 4) <> '_cf_'",
   );
-  const rows = (
-    JSON.parse(listing.slice(listing.indexOf('['))) as Array<{ results: Array<{ type: string; name: string }> }>
-  )[0]?.results;
-  if (!rows) throw new DeployError('Could not list the tables to reset.');
   if (rows.length > 0) {
     const drops = rows
       .reverse()
@@ -294,6 +233,7 @@ function reset(env: EnvironmentName, confirm: string | undefined, andSeed: boole
   }
   migrate(env);
   if (andSeed) seed(env, seedAnchor);
+  log(`${env} has no application password now; run \`pnpm auth set-password ${env}\` before using it.`);
 }
 
 function doctor(env: EnvironmentName): void {
@@ -302,11 +242,16 @@ function doctor(env: EnvironmentName): void {
   log(`Doctor ${env}: Worker ${worker} · D1 ${database} · ${publicUrl(env)}`);
   if (databaseId === PLACEHOLDER_DATABASE_ID) {
     throw new DeployError(
-      `${env} is not provisioned in ${CONFIG}. Run \`pnpm cf provision ${env} --write\` locally, or provision in GitHub and commit the reported id.`,
+      `${env} is not provisioned in ${CONFIG}. Run \`pnpm cf provision ${env} --write\` locally and commit the id.`,
     );
   }
   requireCloudflareAuth();
   wrangler(['d1', 'migrations', 'list', ...d1Args(env)]);
+  log(
+    passwordConfigured(env)
+      ? 'Application password: configured.'
+      : `Application password: NOT configured — the app refuses every sign-in. Run \`pnpm auth set-password ${env}\`.`,
+  );
   log(`Doctor passed for ${env}: config, credentials and D1 binding are usable.`);
 }
 
@@ -317,6 +262,11 @@ function tail(env: EnvironmentName): void {
 }
 
 async function provision(env: EnvironmentName, write: boolean): Promise<void> {
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    throw new DeployError(
+      'Provisioning is a local bootstrap step: run `pnpm cf provision <env> --write` and commit the id.',
+    );
+  }
   const { database } = ENVIRONMENTS[env];
   const list = () =>
     JSON.parse(wrangler(['d1', 'list', '--json'], true).replace(/^[^[]*/, '')) as Array<{ uuid: string; name: string }>;
@@ -331,24 +281,33 @@ async function provision(env: EnvironmentName, write: boolean): Promise<void> {
 
   const configured = readEnvironmentConfig(env).databaseId;
   if (configured === found.uuid) {
-    log(`${CONFIG} env.${env} already binds DB to ${found.uuid}. Next: \`pnpm cf migrate ${env}\`.`);
+    log(`${CONFIG} env.${env} already binds DB to ${found.uuid}.`);
     return;
   }
   const delta = `In ${CONFIG}, set env.${env}.d1_databases[DB].database_id to "${found.uuid}" (currently "${configured}").`;
   if (write) {
     writeFileSync(CONFIG, withDatabaseId(readFileSync(CONFIG, 'utf8'), env, found.uuid));
-    log(`Updated ${CONFIG}. Commit it, then run \`pnpm cf migrate ${env}\` or \`pnpm cf release ${env}\`.`);
+    log(`Updated ${CONFIG}. Commit it.`);
   } else {
-    log(`${delta} Commit that change (or rerun with --write) before migrating/deploying.`);
+    log(`${delta} Rerun with --write (or edit it) and commit it before migrating/deploying.`);
   }
-  summary([`### Provisioned ${env}`, '', delta, '', `Database: \`${database}\` / \`${found.uuid}\``]);
+  log(`Next: \`pnpm cf migrate ${env}\`, \`pnpm auth set-password ${env}\`, then \`pnpm cf release ${env}\`.`);
+}
+
+/** Deploying app code to an environment without a password would only ever show a refusing sign-in. */
+function requirePassword(env: EnvironmentName): void {
+  if (!passwordConfigured(env)) {
+    throw new DeployError(
+      `${env} has no application password (or its auth tables are missing). Run \`pnpm cf migrate ${env}\` and \`pnpm auth set-password ${env}\` first.`,
+    );
+  }
 }
 
 function build(env: EnvironmentName): string {
   const outDir = path.join('.deploy', env);
   rmSync(outDir, { recursive: true, force: true });
   log(`Clean ${env} build into ${outDir}…`);
-  run('pnpm', ['exec', 'vite', 'build', '--outDir', outDir, '--logLevel', 'warn'], {
+  runPnpm(['exec', 'vite', 'build', '--outDir', outDir, '--logLevel', 'warn'], {
     env: { ...childEnv, CLOUDFLARE_ENV: env },
   });
   // The Vite plugin points `wrangler deploy` at the last build; deploys here always pass -c.
@@ -409,13 +368,8 @@ function deploy(
   return entries.find((e) => e.type === 'deploy')?.version_id ?? null;
 }
 
-function accessHeaders(): Record<string, string> {
-  const { CF_ACCESS_CLIENT_ID: id, CF_ACCESS_CLIENT_SECRET: secret } = process.env;
-  return id && secret ? { 'CF-Access-Client-Id': id, 'CF-Access-Client-Secret': secret } : {};
-}
-
 async function fetchHealth(env: EnvironmentName): Promise<HealthResponse> {
-  const response = await fetch(`${publicUrl(env)}/api/health`, { headers: accessHeaders(), redirect: 'manual' });
+  const response = await fetch(`${publicUrl(env)}/api/health`, { redirect: 'manual' });
   if (!response.headers.get('content-type')?.includes('application/json')) {
     throw new Error(`HTTP ${response.status} without a health payload`);
   }
@@ -430,12 +384,21 @@ async function smoke(env: EnvironmentName, revision: string, requireMigrated: bo
       const health = await fetchHealth(env);
       problems = smokeProblems(health, expected);
       if (problems.length === 0) {
-        const page = await fetch(publicUrl(env), { headers: accessHeaders() });
-        if (page.ok && page.headers.get('content-type')?.includes('text/html')) {
-          log(`Smoke check passed: ${publicUrl(env)} runs ${revision} on ${env}.`);
+        const page = await fetch(publicUrl(env));
+        problems =
+          page.ok && page.headers.get('content-type')?.includes('text/html')
+            ? []
+            : [`the app page returned HTTP ${page.status}`];
+        // Fail-closed check: application data must be refused without a session.
+        const data = await fetch(`${publicUrl(env)}/api/profiles`, { redirect: 'manual' });
+        if (data.status !== 401)
+          problems.push(`unauthenticated GET /api/profiles returned HTTP ${data.status}, expected 401`);
+        if (problems.length === 0) {
+          log(
+            `Smoke check passed: ${publicUrl(env)} runs ${revision} on ${env} and refuses unauthenticated data access.`,
+          );
           return health;
         }
-        problems = [`the app page returned HTTP ${page.status}`];
       }
     } catch (error) {
       problems = [error instanceof Error ? error.message : String(error)];
@@ -475,6 +438,7 @@ async function deployRevision(
         : await requireValidationEvidence(sha);
       migrate(env);
     } else log('deploy-only: migrations are NOT applied.');
+    requirePassword(env);
     versionId = deploy(env, build(env), sha, source, operation);
     output({ version_id: versionId ?? '' });
     versionId = (await smoke(env, sha, operation === 'release')).workerVersion?.id ?? versionId;

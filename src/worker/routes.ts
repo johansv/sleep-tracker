@@ -3,7 +3,8 @@ import { rangeLength } from '../domain/period';
 import { validateSession } from '../domain/session';
 import { computePeriodStats } from '../domain/stats';
 import type { HealthResponse, SessionBody, SessionListResponse, StatsResponse } from '../shared/api';
-import type { RequestContext } from './context';
+import { authenticate, login, logout, sessionStatus, unauthenticated } from './auth';
+import { resolveRequestContext, type RequestContext } from './context';
 import * as db from './db';
 import { ApiError, json, readJson } from './http';
 import {
@@ -91,9 +92,18 @@ type Handler = (args: {
   params: string[];
 }) => Promise<Response>;
 
-const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
-  ['GET', /^\/api\/health$/, async ({ env }) => health(env)],
+type PublicHandler = (args: { request: Request; env: Env }) => Promise<Response>;
 
+/** Reachable without signing in; they expose no application data. */
+const publicRoutes: Array<[method: string, pattern: RegExp, handler: PublicHandler]> = [
+  ['GET', /^\/api\/health$/, async ({ env }) => health(env)],
+  ['GET', /^\/api\/auth\/session$/, async ({ request, env }) => sessionStatus(request, env)],
+  ['POST', /^\/api\/auth\/login$/, async ({ request, env }) => login(request, env)],
+  ['POST', /^\/api\/auth\/logout$/, async ({ request, env }) => logout(request, env)],
+];
+
+/** Everything else requires an authenticated caller. */
+const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   [
     'GET',
     /^\/api\/profiles$/,
@@ -205,14 +215,25 @@ const routes: Array<[method: string, pattern: RegExp, handler: Handler]> = [
   ],
 ];
 
-export async function route(request: Request, env: Env, ctx: RequestContext): Promise<Response> {
+export async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   let pathMatched = false;
+  for (const [method, pattern, handler] of publicRoutes) {
+    if (!pattern.test(url.pathname)) continue;
+    pathMatched = true;
+    if (method === request.method) return handler({ request, env });
+  }
   for (const [method, pattern, handler] of routes) {
     const match = pattern.exec(url.pathname);
     if (!match) continue;
     pathMatched = true;
-    if (method === request.method) return handler({ request, env, ctx, url, params: match.slice(1) });
+    if (method !== request.method) continue;
+    // Authenticate before touching any resource; unknown paths/methods reveal nothing either way.
+    const auth = await authenticate(request, env);
+    if (!auth) throw unauthenticated();
+    const response = await handler({ request, env, ctx: resolveRequestContext(auth), url, params: match.slice(1) });
+    if (auth.method === 'session' && auth.renewCookie) response.headers.append('set-cookie', auth.renewCookie);
+    return response;
   }
   if (pathMatched) throw new ApiError(405, 'method_not_allowed', 'Method not allowed.');
   throw new ApiError(404, 'not_found', 'Not found.');

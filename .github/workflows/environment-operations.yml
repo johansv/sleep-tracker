@@ -4,6 +4,9 @@ run-name: ${{ inputs.operation }} ${{ inputs.environment }}
 # Manual non-deploy operations on one permanent environment, through the same `pnpm cf` commands
 # used locally. Migrations/seed data come from the branch this workflow is run from ("Use workflow
 # from"); production operations must run from main. Seed/reset are refused for production.
+# Provisioning (creating D1 and committing its id) and setting the application password are local
+# bootstrap steps (`pnpm cf provision`, `pnpm auth set-password`), not offered here. A reset drops
+# the password too, so the environment refuses every sign-in until it is set again.
 on:
   workflow_dispatch:
     inputs:
@@ -12,9 +15,9 @@ on:
         options: [dev, staging, production]
         default: dev
       operation:
-        description: 'doctor | status | provision | migrate | seed | reset | reset-and-seed'
+        description: 'doctor | status | migrate | seed | reset | reset-and-seed'
         type: choice
-        options: [doctor, status, provision, migrate, seed, reset, reset-and-seed]
+        options: [doctor, status, migrate, seed, reset, reset-and-seed]
         default: status
       confirm:
         description: For reset, type the environment name again
@@ -64,8 +67,6 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           case "$OPERATION" in
             seed) pnpm cf seed "$TARGET_ENV" --anchor "$SEED_ANCHOR" ;;

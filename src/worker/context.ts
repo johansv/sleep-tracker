@@ -1,9 +1,12 @@
+import type { Authentication } from './auth';
+
 /**
- * Resolves who is acting and which household they may access.
+ * Resolves which household an authenticated request may access.
  *
- * V1 has no application authentication: every request acts on the single default household.
- * Future account auth plugs in here, before any resource access, without touching routes,
- * persistence or domain logic.
+ * Auth (src/worker/auth.ts) proves the caller knows this environment's password; there are no
+ * user accounts, so every authenticated request acts on the single default household. Future
+ * account auth maps identities to households here, without touching routes, persistence or
+ * domain logic.
  */
 export interface RequestContext {
   householdId: string;
@@ -11,6 +14,6 @@ export interface RequestContext {
 
 export const DEFAULT_HOUSEHOLD_ID = 'hh_default';
 
-export function resolveRequestContext(_request: Request): RequestContext {
+export function resolveRequestContext(_auth: Authentication): RequestContext {
   return { householdId: DEFAULT_HOUSEHOLD_ID };
 }

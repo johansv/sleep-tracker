@@ -1,5 +1,6 @@
 import type {
   ApiErrorBody,
+  AuthSessionResponse,
   CreateProfileInput,
   CreateSessionInput,
   Profile,
@@ -22,6 +23,9 @@ export class ApiRequestError extends Error {
     super(message);
   }
 }
+
+/** Dispatched on `window` whenever the API answers that the caller is not signed in. */
+export const UNAUTHENTICATED_EVENT = 'app:unauthenticated';
 
 const NETWORK_MESSAGE = "Can't reach Sleep Tracker. Check your connection and try again.";
 
@@ -49,6 +53,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   if (!response.ok) {
     const error = (data as Partial<ApiErrorBody>).error;
+    if (response.status === 401 && error?.code === 'unauthenticated') {
+      window.dispatchEvent(new Event(UNAUTHENTICATED_EVENT));
+    }
     throw new ApiRequestError('http', error?.message ?? 'Something went wrong.', response.status, error?.code);
   }
   return data as T;
@@ -64,6 +71,10 @@ function query(params: Record<string, string | readonly string[] | undefined>): 
 }
 
 export const api = {
+  session: () => request<AuthSessionResponse>('GET', '/api/auth/session'),
+  login: (password: string) => request<AuthSessionResponse>('POST', '/api/auth/login', { password }),
+  logout: () => request<AuthSessionResponse>('POST', '/api/auth/logout'),
+
   listProfiles: () => request<{ profiles: Profile[] }>('GET', '/api/profiles').then((r) => r.profiles),
   createProfile: (input: CreateProfileInput) =>
     request<{ profile: Profile }>('POST', '/api/profiles', input).then((r) => r.profile),
